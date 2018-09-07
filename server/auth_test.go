@@ -16,180 +16,175 @@ limitations under the License.
 
 package main
 
-// import (
-// 	"bytes"
-// 	"crypto/ecdsa"
-// 	"crypto/elliptic"
-// 	"crypto/sha256"
-// 	"io/ioutil"
-// 	"math/rand"
-// 	"net/http"
-// 	"net/http/httptest"
-// 	"testing"
-// 	"time"
-// )
+import (
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/sha256"
+	"encoding/asn1"
+	"encoding/base64"
+	"io/ioutil"
+	"math/big"
+	"math/rand"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
 
-// var privateKey *ecdsa.PrivateKey
+var privateKey *ecdsa.PrivateKey
 
-// var alternateNow = func() time.Time {
-// 	return time.Unix(904867200, 0)
-// }
+var alternateNow = func() time.Time {
+	return time.Unix(904867200, 0)
+}
 
-// func init() {
-// 	var err error
-// 	// This is a horribly insecure way to create a key, only good for creating a
-// 	// well known key for testing!
-// 	privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.New(rand.NewSource(0)))
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// }
+func init() {
+	var err error
+	// This is a horribly insecure way to create a key, only good for creating a
+	// well known key for testing!
+	privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.New(rand.NewSource(0)))
+	if err != nil {
+		panic(err)
+	}
+}
 
-// func createRSSignature(t *testing.T) (string, string) {
-// 	digest := "https://www.proxy.com/some/path" + "904867200" + "request body"
-// 	sum := sha256.Sum256([]byte(digest))
-// 	// fmt.Println("Expected sum", sum)
+func createSignature(t *testing.T) string {
+	digest := "https://www.proxy.com/some/path\n" + "904867200\n" + "request body"
+	sum := sha256.Sum256([]byte(digest))
 
-// 	r, s, err := ecdsa.Sign(rand.New(rand.NewSource(0)), privateKey, sum[:])
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	return r.String(), s.String()
-// }
+	r, s, err := ecdsa.Sign(rand.New(rand.NewSource(0)), privateKey, sum[:])
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// func createRequest(t *testing.T) *http.Request {
-// 	body := bytes.NewBuffer([]byte("request body"))
+	return encodeAsn1Signature(r, s, t)
+}
 
-// 	r := httptest.NewRequest("POST", "https://www.proxy.com/some/path", body)
-// 	rSignature, sSignature := createRSSignature(t)
-// 	r.Header.Set("For-Web-Api-Gateway-Auth-R", rSignature)
-// 	r.Header.Set("For-Web-Api-Gateway-Auth-S", sSignature)
-// 	r.Header.Set("For-Web-Api-Gateway-Request-Time-Utc", "904867200")
+func encodeAsn1Signature(r, s *big.Int, t *testing.T) string {
+	asn1Sig := struct {
+		R, S *big.Int
+	}{
+		r, s,
+	}
 
-// 	return r
-// }
+	b, err := asn1.Marshal(asn1Sig)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// func checkExpectations(t *testing.T, resp *http.Response, status int, body, wasError, errorCode string) {
-// 	actualBody, _ := ioutil.ReadAll(resp.Body)
+	return base64.StdEncoding.EncodeToString(b)
+}
 
-// 	if status != resp.StatusCode {
-// 		t.Errorf("statusCode expected: %d actual: %d", status, resp.StatusCode)
-// 	}
-// 	if body != string(actualBody) {
-// 		t.Errorf("body expected: %s actual: %s", body, string(actualBody))
-// 	}
-// 	if wasError != resp.Header.Get("From-Web-Api-Gateway-Was-Error") {
-// 		t.Errorf("From-Web-Api-Gateway-Was-Error expected: %s actual: %s", wasError, resp.Header.Get("From-Web-Api-Gateway-Was-Error"))
-// 	}
-// 	if errorCode != resp.Header.Get("From-Web-Api-Gateway-Error-Code") {
-// 		t.Errorf("From-Web-Api-Gateway-Error-Code expected: %s actual: %s", errorCode, resp.Header.Get("From-Web-Api-Gateway-Error-Code"))
-// 	}
-// }
+func createRequest(t *testing.T) *http.Request {
+	body := bytes.NewBuffer([]byte("request body"))
 
-// func fatalHandler(t *testing.T) http.HandlerFunc {
-// 	return func(w http.ResponseWriter, r *http.Request) {
-// 		t.Error("The handler should not be called!")
-// 	}
-// }
+	r := httptest.NewRequest("POST", "https://www.proxy.com/some/path", body)
+	r.Header.Set("For-Web-Api-Gateway-Signature", createSignature(t))
+	r.Header.Set("For-Web-Api-Gateway-Request-Time-Utc", "904867200")
 
-// func TestGoodAuth(t *testing.T) {
-// 	successHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 		body, err := ioutil.ReadAll(r.Body)
-// 		if err != nil {
-// 			t.Error(err)
-// 		}
-// 		if string(body) != "request body" {
-// 			t.Errorf("request body expected: %s actual: %s", "request body", string(body))
-// 		}
+	return r
+}
 
-// 		w.WriteHeader(http.StatusOK)
-// 		w.Write([]byte("Success!"))
-// 	})
+func checkExpectations(t *testing.T, resp *http.Response, status int, body, wasError, errorCode string) {
+	actualBody, _ := ioutil.ReadAll(resp.Body)
 
-// 	handler := onlyAllowVerifiedRequests(successHandler, &privateKey.PublicKey, alternateNow)
+	if status != resp.StatusCode {
+		t.Errorf("statusCode expected: %d actual: %d", status, resp.StatusCode)
+	}
+	if body != string(actualBody) {
+		t.Errorf("body expected: %s actual: %s", body, string(actualBody))
+	}
+	if wasError != resp.Header.Get("From-Web-Api-Gateway-Was-Error") {
+		t.Errorf("From-Web-Api-Gateway-Was-Error expected: %s actual: %s", wasError, resp.Header.Get("From-Web-Api-Gateway-Was-Error"))
+	}
+	if errorCode != resp.Header.Get("From-Web-Api-Gateway-Error-Code") {
+		t.Errorf("From-Web-Api-Gateway-Error-Code expected: %s actual: %s", errorCode, resp.Header.Get("From-Web-Api-Gateway-Error-Code"))
+	}
+}
 
-// 	req := createRequest(t)
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
+func fatalHandler(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		t.Error("The handler should not be called!")
+	}
+}
 
-// 	checkExpectations(t, w.Result(), http.StatusOK, "Success!", "", "")
-// }
+func TestGoodAuth(t *testing.T) {
+	successHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		if string(body) != "request body" {
+			t.Errorf("request body expected: %s actual: %s", "request body", string(body))
+		}
 
-// func TestNonNumericR(t *testing.T) {
-// 	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Success!"))
+	})
 
-// 	req := createRequest(t)
-// 	req.Header.Set("For-Web-Api-Gateway-Auth-R", "thisisn'tgoingtowork")
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
+	handler := onlyAllowVerifiedRequests(successHandler, &privateKey.PublicKey, alternateNow)
 
-// 	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidHeaders")
-// }
+	req := createRequest(t)
+	w := httptest.NewRecorder()
+	handler(w, req)
 
-// func TestNonNumericS(t *testing.T) {
-// 	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
+	checkExpectations(t, w.Result(), http.StatusOK, "Success!", "", "")
+}
 
-// 	req := createRequest(t)
-// 	req.Header.Set("For-Web-Api-Gateway-Auth-S", "thisisn'tgoingtowork")
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
+func TestNonAsn1Signature(t *testing.T) {
+	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
 
-// 	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidHeaders")
-// }
+	req := createRequest(t)
+	req.Header.Set("For-Web-Api-Gateway-Signature", "thisisn'tgoingtowork")
+	w := httptest.NewRecorder()
+	handler(w, req)
 
-// func TestNonNumericTimestamp(t *testing.T) {
-// 	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
+	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidHeaders")
+}
 
-// 	req := createRequest(t)
-// 	req.Header.Set("For-Web-Api-Gateway-Request-Time-Utc", "thisisn'tgoingtowork")
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
+func TestNonNumericTimestamp(t *testing.T) {
+	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
 
-// 	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidHeaders")
-// }
+	req := createRequest(t)
+	req.Header.Set("For-Web-Api-Gateway-Request-Time-Utc", "thisisn'tgoingtowork")
+	w := httptest.NewRecorder()
+	handler(w, req)
 
-// func TestIncorrectR(t *testing.T) {
-// 	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
+	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidHeaders")
+}
 
-// 	req := createRequest(t)
-// 	req.Header.Set("For-Web-Api-Gateway-Auth-R", "1234")
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
+func TestIncorrectSignature(t *testing.T) {
+	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
 
-// 	checkExpectations(t, w.Result(), http.StatusUnauthorized, "", "true", "ErrorNotVerified")
-// }
+	req := createRequest(t)
+	sig := encodeAsn1Signature(big.NewInt(5), big.NewInt(6), t)
+	req.Header.Set("For-Web-Api-Gateway-Signature", sig)
+	w := httptest.NewRecorder()
+	handler(w, req)
 
-// func TestIncorrectS(t *testing.T) {
-// 	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, alternateNow)
+	checkExpectations(t, w.Result(), http.StatusUnauthorized, "", "true", "ErrorNotVerified")
+}
 
-// 	req := createRequest(t)
-// 	req.Header.Set("For-Web-Api-Gateway-Auth-S", "1234")
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
+func TestOldTimestamp(t *testing.T) {
+	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, func() time.Time {
+		return time.Unix(904867200+61, 0)
+	})
 
-// 	checkExpectations(t, w.Result(), http.StatusUnauthorized, "", "true", "ErrorNotVerified")
-// }
+	req := createRequest(t)
+	w := httptest.NewRecorder()
+	handler(w, req)
 
-// func TestOldTimestamp(t *testing.T) {
-// 	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, func() time.Time {
-// 		return time.Unix(904867200+61, 0)
-// 	})
+	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidTime")
+}
 
-// 	req := createRequest(t)
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
+func TestEarlyTimestamp(t *testing.T) {
+	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, func() time.Time {
+		return time.Unix(904867200-61, 0)
+	})
 
-// 	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidTime")
-// }
+	req := createRequest(t)
+	w := httptest.NewRecorder()
+	handler(w, req)
 
-// func TestEarlyTimestamp(t *testing.T) {
-// 	handler := onlyAllowVerifiedRequests(fatalHandler(t), &privateKey.PublicKey, func() time.Time {
-// 		return time.Unix(904867200-61, 0)
-// 	})
-
-// 	req := createRequest(t)
-// 	w := httptest.NewRecorder()
-// 	handler(w, req)
-
-// 	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidTime")
-// }
+	checkExpectations(t, w.Result(), http.StatusBadRequest, "", "true", "ErrorInvalidTime")
+}
