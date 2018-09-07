@@ -91,8 +91,6 @@ func onlyAllowVerifiedRequests(
 		*r2 = *r
 		r2.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
-		// TODO: Also clean out headers beginning with "For-Web-Api-Gateway"
-
 		w.Header().Set("From-Web-Api-Gateway-Was-Auth-Error", "false")
 		handler.ServeHTTP(w, r2)
 	}

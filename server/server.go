@@ -164,7 +164,7 @@ func createOAuthForwarder(service *config.Service, account *config.Account) (htt
 	proxy := httputil.NewSingleHostReverseProxy(domain)
 	proxy.Transport = transport
 
-	fixHost := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fixRequest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		headersToRemove := []string{}
 		for header := range r.Header {
 			if strings.HasPrefix(header, "For-Web-Api-Gateway") {
@@ -180,7 +180,7 @@ func createOAuthForwarder(service *config.Service, account *config.Account) (htt
 		proxy.ServeHTTP(w, r)
 	})
 
-	return fixHost, err
+	return fixRequest, err
 }
 
 func createStatusPage(service *config.Service, account *config.Account) http.Handler {

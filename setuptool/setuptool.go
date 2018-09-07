@@ -380,7 +380,7 @@ func (e accountEditor) generateNewClientCreds(term *terminal) {
 		}
 
 		creds := config.ClientCreds{
-			Protocol:   "TODO_THIS_NEEDS_TO_BE_SET!!!",
+			Protocol:   "ECDSA_SHA256_PKCS8_V1",
 			PrivateKey: base64.StdEncoding.EncodeToString(bytes),
 		}
 
