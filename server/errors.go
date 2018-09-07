@@ -35,6 +35,7 @@ func (e *errorCode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 var (
 	ErrorInvalidHeaders     = &errorCode{http.StatusBadRequest, "ErrorInvalidHeaders"}
+	ErrorInvalidSignature   = &errorCode{http.StatusBadRequest, "ErrorInvalidSignature"}
 	ErrorInvalidTime        = &errorCode{http.StatusBadRequest, "ErrorInvalidTime"}
 	ErrorIO                 = &errorCode{http.StatusInternalServerError, "ErrorIO"}
 	ErrorEncodingStatusJson = &errorCode{http.StatusInternalServerError, "ErrorEncodingStatusJson"}

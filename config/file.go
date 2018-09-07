@@ -26,7 +26,7 @@ import (
 
 var configFileName *string = flag.String(
 	"configpath",
-	"/etc/webapigateway/config.json",
+	"/etc/webapigateway/config/config.json",
 	"This is the path to the json config file managing this proxy.",
 )
 
@@ -53,7 +53,7 @@ func readConfig(name string) (*Config, error) {
 }
 
 func readWriteConfig(name string) (c *Config, save func() error, err error) {
-	f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_SYNC, 600)
+	f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_SYNC, 0600)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error reading or creating file %s: %v", name, err)
 	}

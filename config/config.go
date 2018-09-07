@@ -17,8 +17,13 @@ limitations under the License.
 // Package config provides the config details for the services.
 package config
 
+import (
+	"golang.org/x/oauth2"
+)
+
 // Config is the root for configuration of the web-api-gateway.
 type Config struct {
+	Url      string
 	Services []*Service
 }
 
@@ -43,15 +48,9 @@ type OauthServiceCreds struct {
 // to/from the web-api-gateway.
 type Account struct {
 	AccountName       string // name for this account
-	OauthAccountCreds *OauthAccountCreds
+	ServiceURL        string // service endpoint to be connected
+	OauthAccountCreds *oauth2.Token
 	ClientCreds       *ClientCreds
-}
-
-// OauthAccountCreds stores the service side authorization details for this
-// account.
-type OauthAccountCreds struct {
-	ServiceURL   string // service endpoint to be connected
-	RefreshToken string // token for obtaining a new access token
 }
 
 // ClientCreds stores the autorization details to connect to this account.

@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/asn1"
+	"encoding/base64"
 	"io/ioutil"
 	"math/big"
 	"net/http"
@@ -34,14 +36,23 @@ func onlyAllowVerifiedRequests(
 	handler http.Handler, key *ecdsa.PublicKey, now func() time.Time) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		signatureR, goodParse := big.NewInt(0).SetString(r.Header.Get("For-Web-Api-Gateway-Auth-R"), 10)
-		if !goodParse {
+		signature, err := base64.StdEncoding.DecodeString(r.Header.Get("For-Web-Api-Gateway-Signature"))
+		if err != nil {
 			ErrorInvalidHeaders.ServeHTTP(w, r)
 			return
 		}
-		signatureS, goodParse := big.NewInt(0).SetString(r.Header.Get("For-Web-Api-Gateway-Auth-S"), 10)
-		if !goodParse {
-			ErrorInvalidHeaders.ServeHTTP(w, r)
+
+		type ecdsaSignature struct {
+			R, S *big.Int
+		}
+
+		ecdsaSig := new(ecdsaSignature)
+		if rest, err := asn1.Unmarshal(signature, ecdsaSig); err != nil || len(rest) != 0 {
+			ErrorInvalidSignature.ServeHTTP(w, r)
+			return
+		}
+		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
+			ErrorInvalidSignature.ServeHTTP(w, r)
 			return
 		}
 
@@ -62,22 +73,27 @@ func onlyAllowVerifiedRequests(
 			return
 		}
 
-		hash := sha256.New()
-		hash.Write([]byte(r.URL.String()))
-		hash.Write([]byte(r.Header.Get("For-Web-Api-Gateway-Request-Time-Utc")))
-		hash.Write(body)
+		signed := make([]byte, 0)
+		signed = append(signed, []byte(r.URL.String())...)
+		signed = append(signed, []byte("\n")...)
+		signed = append(signed, []byte(r.Header.Get("For-Web-Api-Gateway-Request-Time-Utc"))...)
+		signed = append(signed, []byte("\n")...)
+		signed = append(signed, body...)
 
-		if ecdsa.Verify(key, hash.Sum(nil), signatureR, signatureS) {
-			r2 := new(http.Request)
-			*r2 = *r
-			r2.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+		hash := sha256.Sum256(signed)
 
-			// TODO: Also clean out headers beginning with "For-Web-Api-Gateway"
-
-			handler.ServeHTTP(w, r2)
+		if !ecdsa.Verify(key, hash[:], ecdsaSig.R, ecdsaSig.S) {
+			ErrorNotVerified.ServeHTTP(w, r)
 			return
 		}
 
-		ErrorNotVerified.ServeHTTP(w, r)
+		r2 := new(http.Request)
+		*r2 = *r
+		r2.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+
+		// TODO: Also clean out headers beginning with "For-Web-Api-Gateway"
+
+		w.Header().Set("From-Web-Api-Gateway-Was-Auth-Error", "false")
+		handler.ServeHTTP(w, r2)
 	}
 }

@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -29,6 +30,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"runtime"
+	"strings"
 	"time"
 	"web-api-gateway/config"
 
@@ -37,19 +39,37 @@ import (
 
 const version = "0.1"
 
+var certFile *string = flag.String(
+	"certFile",
+	"/etc/webapigateway/cert/fullchain.pem",
+	"This is the full public certificate for this web server.",
+)
+
+var keyFile *string = flag.String(
+	"keyFile",
+	"/etc/webapigateway/cert/privkey.pem",
+	"This is the private key for the certFile.",
+)
+
+var addr *string = flag.String(
+	"addr",
+	":443",
+	"This is the address:port which the server listens to.",
+)
+
 func main() {
 	flag.Parse()
 
 	log.Println("Reading config file...")
-	mux := createConfigHandler()
+
+	http.Handle("/service/", createConfigHandler())
 
 	log.Println("Starting server...")
-	// TODO IMPORTANT: Replace with this https.  Don't even offer a non-https endpoint.
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServeTLS(*addr, *certFile, *keyFile, nil))
 }
 
 func createConfigHandler() http.Handler {
-	c, err := config.ReadConfig() // TODO read from file.
+	c, err := config.ReadConfig()
 	if err != nil {
 		log.Printf("Error reading config file: %s", err)
 		return ErrorReadingConfig
@@ -75,6 +95,9 @@ func createConfigHandler() http.Handler {
 }
 
 func createAccountHandler(service *config.Service, account *config.Account) (string, http.Handler, error) {
+	// TODO: we're assuming that service and account names are valid.  The editing tool validates this
+	// but it should be validated when loading too.
+	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
 	mux := http.NewServeMux()
 
 	{
@@ -82,16 +105,12 @@ func createAccountHandler(service *config.Service, account *config.Account) (str
 		if err != nil {
 			return "", nil, err
 		}
-		mux.Handle("/forward/", http.StripPrefix("/forward/", handler))
+		mux.Handle(basePath+"forward/", http.StripPrefix(basePath+"forward/", handler))
 	}
 
-	mux.Handle("/status", createStatusPage(service, account))
+	mux.Handle(basePath+"status", createStatusPage(service, account))
 
-	// TODO: we're assuming that service and account names are valid.  The editing tool validates this
-	// but it should be validated when loading too.
-	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
-
-	handler, err := wrapWithClientAuth(http.StripPrefix(basePath, mux), account)
+	handler, err := wrapWithClientAuth(mux, account)
 	if err != nil {
 		return "", nil, err
 	}
@@ -107,13 +126,17 @@ func wrapWithClientAuth(handler http.Handler, account *config.Account) (http.Han
 		return nil, errors.New("error decoding private key from base64")
 	}
 
-	privateKey, err := x509.ParseECPrivateKey(der)
+	privateKey, err := x509.ParsePKCS8PrivateKey(der)
 	if err != nil {
 		// Don't log error details in case they include info on the secret.
 		return nil, errors.New("error parsing private key")
 	}
 
-	return onlyAllowVerifiedRequests(handler, &privateKey.PublicKey, time.Now), nil
+	switch privateKey := privateKey.(type) {
+	case *ecdsa.PrivateKey:
+		return onlyAllowVerifiedRequests(handler, &privateKey.PublicKey, time.Now), nil
+	}
+	return nil, errors.New("Private key not of type ecdsa")
 }
 
 func createOAuthForwarder(service *config.Service, account *config.Account) (http.Handler, error) {
@@ -129,15 +152,11 @@ func createOAuthForwarder(service *config.Service, account *config.Account) (htt
 		Endpoint:     endpoint,
 	}
 
-	token := &oauth2.Token{
-		RefreshToken: account.OauthAccountCreds.RefreshToken,
-	}
-
 	transport := &oauth2.Transport{
-		Source: oauthConf.TokenSource(context.Background(), token),
+		Source: oauthConf.TokenSource(context.Background(), account.OauthAccountCreds),
 	}
 
-	domain, err := url.Parse(account.OauthAccountCreds.ServiceURL)
+	domain, err := url.Parse(account.ServiceURL)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +164,23 @@ func createOAuthForwarder(service *config.Service, account *config.Account) (htt
 	proxy := httputil.NewSingleHostReverseProxy(domain)
 	proxy.Transport = transport
 
-	return proxy, err
+	fixHost := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headersToRemove := []string{}
+		for header := range r.Header {
+			if strings.HasPrefix(header, "For-Web-Api-Gateway") {
+				headersToRemove = append(headersToRemove, header)
+			}
+		}
+
+		for _, header := range headersToRemove {
+			r.Header.Del(header)
+		}
+
+		r.Host = domain.Host
+		proxy.ServeHTTP(w, r)
+	})
+
+	return fixHost, err
 }
 
 func createStatusPage(service *config.Service, account *config.Account) http.Handler {
@@ -153,9 +188,9 @@ func createStatusPage(service *config.Service, account *config.Account) http.Han
 		status := struct {
 			Version    string
 			GoVersion  string
-			Scopes     []string
 			TokenUrl   string
 			AuthUrl    string
+			Scopes     []string
 			ServiceUrl string
 		}{
 			Version:    version,
@@ -163,7 +198,7 @@ func createStatusPage(service *config.Service, account *config.Account) http.Han
 			AuthUrl:    service.OauthServiceCreds.AuthURL,
 			TokenUrl:   service.OauthServiceCreds.TokenURL,
 			Scopes:     service.OauthServiceCreds.Scopes,
-			ServiceUrl: account.OauthAccountCreds.ServiceURL,
+			ServiceUrl: account.ServiceURL,
 		}
 
 		b, err := json.Marshal(status)
