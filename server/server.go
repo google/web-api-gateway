@@ -37,7 +37,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const version = "0.1"
+const version = "0.2"
 
 var certFile *string = flag.String(
 	"certFile",
@@ -165,17 +165,22 @@ func createOAuthForwarder(service *config.Service, account *config.Account) (htt
 	proxy.Transport = transport
 
 	fixRequest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		headersToRemove := []string{}
+		ClientIdHeader := r.Header.Get("For-Web-Api-Gateway-ClientID-Header")
+
+		headersToRemove := []string{"User-Agent"}
 		for header := range r.Header {
 			if strings.HasPrefix(header, "For-Web-Api-Gateway") {
 				headersToRemove = append(headersToRemove, header)
 			}
 		}
-
 		for _, header := range headersToRemove {
 			r.Header.Del(header)
 		}
+		if ClientIdHeader != "" {
+			r.Header.Add(ClientIdHeader, service.OauthServiceCreds.ClientID)
+		}
 
+		r.RemoteAddr = ""
 		r.Host = domain.Host
 		proxy.ServeHTTP(w, r)
 	})
