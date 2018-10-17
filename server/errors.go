@@ -39,6 +39,7 @@ var (
 	ErrorInvalidTime        = &errorCode{http.StatusBadRequest, "ErrorInvalidTime"}
 	ErrorIO                 = &errorCode{http.StatusInternalServerError, "ErrorIO"}
 	ErrorEncodingStatusJson = &errorCode{http.StatusInternalServerError, "ErrorEncodingStatusJson"}
+	ErrorParsingRedirectUrl = &errorCode{http.StatusInternalServerError, "ErrorParsingRedirectUrl"}
 	ErrorReadingConfig      = &errorCode{http.StatusInternalServerError, "ErrorReadingConfig"}
 	ErrorNotVerified        = &errorCode{http.StatusUnauthorized, "ErrorNotVerified"}
 )

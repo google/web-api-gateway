@@ -65,8 +65,6 @@ func readWriteConfig(name string) (c *Config, save func() error, err error) {
 			return nil, nil, fmt.Errorf("error reading file %s: %v", name, err)
 		}
 
-		// TODO: unencrypt file
-
 		if len(b) > 0 {
 			err = json.Unmarshal(b, &c)
 			if err != nil {
@@ -82,12 +80,10 @@ func saveConfig(name string, c *Config, f *os.File) func() error {
 	return func() error {
 		defer f.Close()
 
-		b, err := json.Marshal(&c)
+		b, err := json.MarshalIndent(&c, "", "  ")
 		if err != nil {
 			return fmt.Errorf("Changes were not saved! Error making json: %v", err)
 		}
-
-		// TODO:encrypt file
 
 		_, err = f.WriteAt(b, 0)
 		if err != nil {

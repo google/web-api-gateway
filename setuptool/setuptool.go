@@ -235,8 +235,13 @@ OUTER:
 
 func (e serviceEditor) addAccount(term *terminal) {
 	a := &config.Account{}
-	accountEditor{e.c, e.s, a}.newSetup(term)
-	e.s.Accounts = append(e.s.Accounts, a)
+	wasSuccess := accountEditor{e.c, e.s, a}.newSetup(term)
+
+	if wasSuccess {
+		e.s.Accounts = append(e.s.Accounts, a)
+	} else {
+		fmt.Println("Could not add account.")
+	}
 }
 
 func (e serviceEditor) editAccount(term *terminal) {
@@ -311,7 +316,7 @@ func (e oauthServiceCredsEditor) setTokenURL(term *terminal) {
 }
 
 func (e oauthServiceCredsEditor) setScopes(term *terminal) {
-	fmt.Printf("Enter scaopes (comma seperated)> ")
+	fmt.Printf("Enter scopes (comma seperated)> ")
 	e.o.Scopes = term.readStringList()
 }
 
@@ -324,11 +329,11 @@ type accountEditor struct {
 	a *config.Account
 }
 
-func (e accountEditor) newSetup(term *terminal) {
+func (e accountEditor) newSetup(term *terminal) bool {
 	e.setName(term)
 	e.setServiceUrl(term)
-	e.generateNewOauthAccountCreds(term)
 	e.generateNewClientCreds(term)
+	return e.generateNewOauthAccountCreds(term)
 }
 
 func (e accountEditor) edit(term *terminal) {
@@ -336,6 +341,7 @@ func (e accountEditor) edit(term *terminal) {
 		newAction("Edit Name", confirmRename(e.setName)),
 		newAction("Edit Service Url", e.setServiceUrl),
 		newAction("Generate New Client Credentials", confirmNewClientCredentials(e.generateNewClientCreds)),
+		newAction("Reauthorize account", func(t *terminal) { e.generateNewOauthAccountCreds(t) }),
 	)
 }
 
@@ -392,38 +398,68 @@ func (e accountEditor) generateNewClientCreds(term *terminal) {
 
 }
 
-func (e accountEditor) generateNewOauthAccountCreds(term *terminal) {
+func (e accountEditor) generateNewOauthAccountCreds(term *terminal) bool {
 	var endpoint = oauth2.Endpoint{
 		AuthURL:  e.s.OauthServiceCreds.AuthURL,
 		TokenURL: e.s.OauthServiceCreds.TokenURL,
 	}
+
+	redirectUrl, err := url.Parse(e.c.Url)
+	if err != nil {
+		fmt.Println("Web-Api-Gatway url setting is invalid, can't continue.")
+		return false
+	}
+	redirectUrl.Path = "/authToken/"
 
 	oauthConf := &oauth2.Config{
 		ClientID:     e.s.OauthServiceCreds.ClientID,
 		ClientSecret: e.s.OauthServiceCreds.ClientSecret,
 		Scopes:       e.s.OauthServiceCreds.Scopes,
 		Endpoint:     endpoint,
-		RedirectURL:  "oob", // TODO: maybe need to have this be a real url.
+		RedirectURL:  redirectUrl.String(),
 	}
 
 	for {
-		authUrl := oauthConf.AuthCodeURL("this-is-not-needed-for-oob")
+		state := generateRandomString()
+
+		authUrl := oauthConf.AuthCodeURL(state)
 
 		fmt.Println("Please go to this url and authorize the application:")
 		fmt.Println(authUrl)
 		fmt.Printf("Enter the code here> ")
 
-		authCode := term.readSimpleString()
+		encodedAuthCode := term.readSimpleString()
+		jsonAuthCode, err := base64.StdEncoding.DecodeString(encodedAuthCode)
+		if err != nil {
+			fmt.Println("Bad decode")
+			continue
+		}
+		j := struct {
+			Token string
+			State string
+		}{}
+		json.Unmarshal(jsonAuthCode, &j)
 
-		token, err := oauthConf.Exchange(context.Background(), authCode)
+		if j.State != state {
+			fmt.Printf("Bad state. Expected %s, got %s\n", state, j.State)
+			continue
+		}
+
+		token, err := oauthConf.Exchange(context.Background(), j.Token)
 		if err == nil {
 			e.a.OauthAccountCreds = token
-			return
+			fmt.Println("Successfully authorized.")
+			return true
 		}
-		fmt.Println("Encountered an error:")
 		fmt.Println(err)
 		fmt.Println("Please try again.")
 	}
+}
+
+func generateRandomString() string {
+	b := make([]byte, 30)
+	rand.Read(b)
+	return fmt.Sprintf("%x", b)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

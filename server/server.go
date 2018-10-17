@@ -37,7 +37,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const version = "0.2"
+const version = "0.3"
 
 var certFile *string = flag.String(
 	"certFile",
@@ -63,9 +63,15 @@ func main() {
 	log.Println("Reading config file...")
 
 	http.Handle("/service/", createConfigHandler())
+	http.HandleFunc("/authToken/", authTokenPage)
+
+	logger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
+		http.DefaultServeMux.ServeHTTP(w, r)
+	})
 
 	log.Println("Starting server...")
-	log.Fatal(http.ListenAndServeTLS(*addr, *certFile, *keyFile, nil))
+	log.Fatal(http.ListenAndServeTLS(*addr, *certFile, *keyFile, logger))
 }
 
 func createConfigHandler() http.Handler {
@@ -78,7 +84,7 @@ func createConfigHandler() http.Handler {
 	mux := http.NewServeMux()
 	for _, service := range c.Services {
 		for _, account := range service.Accounts {
-			path, handler, err := createAccountHandler(service, account)
+			path, handler, err := createAccountHandler(c, service, account)
 			if err != nil {
 				log.Printf(
 					"Error reading the config, service: %s, account: %s, error: %s",
@@ -94,19 +100,26 @@ func createConfigHandler() http.Handler {
 	return mux
 }
 
-func createAccountHandler(service *config.Service, account *config.Account) (string, http.Handler, error) {
+func createAccountHandler(c *config.Config, service *config.Service, account *config.Account) (string, http.Handler, error) {
 	// TODO: we're assuming that service and account names are valid.  The editing tool validates this
 	// but it should be validated when loading too.
 	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
 	mux := http.NewServeMux()
 
+	modifyResponse, err := createModifyResponse(c.Url, basePath)
+	if err != nil {
+		return "", nil, err
+	}
+
 	{
-		handler, err := createOAuthForwarder(service, account)
+		handler, err := createOAuthForwarder(service, account, modifyResponse)
 		if err != nil {
 			return "", nil, err
 		}
 		mux.Handle(basePath+"forward/", http.StripPrefix(basePath+"forward/", handler))
 	}
+
+	mux.Handle(basePath+"authlessForward/", authlessForward(modifyResponse))
 
 	mux.Handle(basePath+"status", createStatusPage(service, account))
 
@@ -139,7 +152,29 @@ func wrapWithClientAuth(handler http.Handler, account *config.Account) (http.Han
 	return nil, errors.New("Private key not of type ecdsa")
 }
 
-func createOAuthForwarder(service *config.Service, account *config.Account) (http.Handler, error) {
+func createModifyResponse(gatewayUrl, basePath string) (func(*http.Response) error, error) {
+	if _, err := url.Parse(gatewayUrl); err != nil {
+		return nil, err
+	}
+
+	return func(r *http.Response) error {
+		if r.StatusCode >= 300 && r.StatusCode < 400 {
+			location := r.Header.Get("Location")
+
+			v := url.Values{}
+			v.Set("url", location)
+
+			newLocation, _ := url.Parse(gatewayUrl)
+			newLocation.Path = basePath + "authlessForward/"
+			newLocation.RawQuery = v.Encode()
+
+			r.Header.Set("Location", newLocation.String())
+		}
+		return nil
+	}, nil
+}
+
+func createOAuthForwarder(service *config.Service, account *config.Account, modifyResponse func(*http.Response) error) (http.Handler, error) {
 	var endpoint = oauth2.Endpoint{
 		AuthURL:  service.OauthServiceCreds.AuthURL,
 		TokenURL: service.OauthServiceCreds.TokenURL,
@@ -163,29 +198,61 @@ func createOAuthForwarder(service *config.Service, account *config.Account) (htt
 
 	proxy := httputil.NewSingleHostReverseProxy(domain)
 	proxy.Transport = transport
+	proxy.ModifyResponse = modifyResponse
 
 	fixRequest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ClientIdHeader := r.Header.Get("For-Web-Api-Gateway-ClientID-Header")
-
-		headersToRemove := []string{"User-Agent"}
-		for header := range r.Header {
-			if strings.HasPrefix(header, "For-Web-Api-Gateway") {
-				headersToRemove = append(headersToRemove, header)
-			}
-		}
-		for _, header := range headersToRemove {
-			r.Header.Del(header)
-		}
 		if ClientIdHeader != "" {
 			r.Header.Add(ClientIdHeader, service.OauthServiceCreds.ClientID)
 		}
 
-		r.RemoteAddr = ""
-		r.Host = domain.Host
+		adjustRequest(r, domain)
+
 		proxy.ServeHTTP(w, r)
 	})
 
 	return fixRequest, err
+}
+
+func adjustRequest(r *http.Request, domain *url.URL) {
+	headersToRemove := []string{"User-Agent"}
+	for header := range r.Header {
+		if strings.HasPrefix(header, "For-Web-Api-Gateway") {
+			headersToRemove = append(headersToRemove, header)
+		}
+	}
+	for _, header := range headersToRemove {
+		r.Header.Del(header)
+	}
+
+	r.RemoteAddr = ""
+	r.Host = domain.Host
+
+}
+
+func authlessForward(modifyResponse func(*http.Response) error) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+
+		var err error
+		r.URL, err = url.Parse(r.FormValue("url"))
+		if err != nil {
+			ErrorParsingRedirectUrl.ServeHTTP(w, r)
+			return
+		}
+
+		domain := url.URL{
+			Scheme: r.URL.Scheme,
+			Host:   r.URL.Host,
+		}
+
+		adjustRequest(r, &domain)
+
+		proxy := httputil.NewSingleHostReverseProxy(&domain)
+		proxy.ModifyResponse = modifyResponse
+
+		proxy.ServeHTTP(w, r)
+	})
 }
 
 func createStatusPage(service *config.Service, account *config.Account) http.Handler {
@@ -218,4 +285,32 @@ func createStatusPage(service *config.Service, account *config.Account) http.Han
 			return
 		}
 	})
+}
+
+func authTokenPage(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+
+	response := struct {
+		Token string
+		State string
+	}{
+		Token: r.FormValue("code"),
+		State: r.FormValue("state"),
+	}
+
+	b, err := json.Marshal(response)
+	if err != nil {
+		w.Write([]byte("Error generating response.  It has been logged."))
+		log.Println("Error generating authToken response:", err)
+		return
+	}
+
+	s := "Copy-paste this code into the setup tool: " + base64.StdEncoding.EncodeToString(b)
+
+	_, err = w.Write([]byte(s))
+	if err != nil {
+		w.Write([]byte("Error generating response.  It has been logged."))
+		log.Println("Error generating authToken response:", err)
+		return
+	}
 }
