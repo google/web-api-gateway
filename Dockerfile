@@ -1,10 +1,10 @@
 FROM golang
 
-ADD . /go/src/web-api-gateway
+ADD . /go/src/github.com/google/web-api-gateway
 
-RUN go get web-api-gateway/server
-RUN go install web-api-gateway/server
-RUN go install web-api-gateway/setuptool
+RUN go get github.com/google/web-api-gateway/server
+RUN go install github.com/google/web-api-gateway/server
+RUN go install github.com/google/web-api-gateway/setuptool
 
 ENTRYPOINT ["/go/bin/server"]
 
