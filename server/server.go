@@ -37,7 +37,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const version = "1.0"
+const version = "1.0.1"
 
 var certFile *string = flag.String(
 	"certFile",
@@ -291,7 +291,21 @@ func createStatusPage(service *config.Service, account *config.Account) http.Han
 }
 
 func authTokenPage(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	err := r.ParseForm()
+	if handleAuthTokenPageError(w, err) {
+		return
+	}
+
+	if r.FormValue("error") != "" {
+		_, err := fmt.Fprintf(
+			w,
+			"The authenticating service returned an error, code='%s', details='%s'.",
+			r.FormValue("error"),
+			r.FormValue("error_description"))
+
+		handleAuthTokenPageError(w, err)
+		return
+	}
 
 	response := struct {
 		Token string
@@ -301,19 +315,39 @@ func authTokenPage(w http.ResponseWriter, r *http.Request) {
 		State: r.FormValue("state"),
 	}
 
+	if response.Token == "" {
+		_, err = fmt.Fprintf(w, "Missing required form value 'code'")
+		handleAuthTokenPageError(w, err)
+		return
+	}
+
+	if response.State == "" {
+		_, err = fmt.Fprintf(w, "Missing required form value 'state'")
+		handleAuthTokenPageError(w, err)
+		return
+	}
+
 	b, err := json.Marshal(response)
-	if err != nil {
-		w.Write([]byte("Error generating response.  It has been logged."))
-		log.Println("Error generating authToken response:", err)
+	if handleAuthTokenPageError(w, err) {
 		return
 	}
 
-	s := "Copy-paste this code into the setup tool: " + base64.StdEncoding.EncodeToString(b)
+	_, err = fmt.Fprintf(
+		w,
+		"Copy-paste this code into the setup tool: %s",
+		base64.StdEncoding.EncodeToString(b))
 
-	_, err = w.Write([]byte(s))
-	if err != nil {
-		w.Write([]byte("Error generating response.  It has been logged."))
-		log.Println("Error generating authToken response:", err)
+	if handleAuthTokenPageError(w, err) {
 		return
 	}
+}
+
+func handleAuthTokenPageError(w http.ResponseWriter, err error) bool {
+	if err != nil {
+		// Ignore error writing this out, we're already in a bad state.
+		w.Write([]byte("Error generating response.  It has been logged."))
+		log.Println("Error generating authToken response:", err)
+		return true
+	}
+	return false
 }
