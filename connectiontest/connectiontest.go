@@ -65,11 +65,23 @@ func main() {
 		return
 	}
 
-	fullPath := path.Join("service", accountKey.service, "account", accountKey.account, "forward", o.path)
+	t := createTransport(o.redirectAddr)
 
+	fmt.Println("<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>")
+	fmt.Println("<> Checking Web API Gateway status for given account key.")
+	statusFullPath := path.Join("service", accountKey.service, "account", accountKey.account, "status")
+	performRequest(accountKey, privateKey, t, statusFullPath, "GET", "", "")
+
+	fmt.Println("<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>")
+	fmt.Println("<> Performing specified connection test.")
+	reqFullPath := path.Join("service", accountKey.service, "account", accountKey.account, "forward", o.path)
+	performRequest(accountKey, privateKey, t, reqFullPath, o.method, o.body, o.headers)
+}
+
+func performRequest(accountKey *key, privateKey *ecdsa.PrivateKey, t http.RoundTripper, fullPath, method, body, headers string) {
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 
-	signature, err := getSignature(privateKey, fullPath, timestamp, o.body)
+	signature, err := getSignature(privateKey, fullPath, timestamp, body)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -77,19 +89,17 @@ func main() {
 
 	url := strings.TrimRight(accountKey.WebGatewayUrl, "/") + "/" + strings.TrimLeft(fullPath, "/")
 
-	r, err := http.NewRequest(o.method, url, strings.NewReader(o.body))
+	r, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	err = addHeaders(r.Header, signature, timestamp, o.headers)
+	err = addHeaders(r.Header, signature, timestamp, headers)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
-	t := createTransport(o.redirectAddr)
 
 	d1, err := httputil.DumpRequestOut(r, true)
 	if err != nil {
