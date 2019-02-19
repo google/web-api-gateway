@@ -37,7 +37,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const version = "1.0.1"
+const version = "1.1.0"
 
 var certFile *string = flag.String(
 	"certFile",
