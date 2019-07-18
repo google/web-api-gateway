@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -31,13 +32,14 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/web-api-gateway/config"
 	"golang.org/x/oauth2"
 )
 
-const version = "1.1.0"
+const version = "1.2.0"
 
 var certFile *string = flag.String(
 	"certFile",
@@ -68,14 +70,87 @@ func main() {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
 	})
 
-	logger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Starting web-api-gateway, version %s\n", version)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
 		http.DefaultServeMux.ServeHTTP(w, r)
 	})
 
-	log.Printf("Starting web-api-gateway, version %s\n", version)
-	log.Fatal(http.ListenAndServeTLS(*addr, *certFile, *keyFile, logger))
+	cr, err := NewCertificateReloader(*certFile, *keyFile)
+	if err != nil {
+		log.Printf("certificate invalid here")
+		log.Fatal(err)
+	}
+
+	server := &http.Server{
+		Addr: ":https",
+		TLSConfig: &tls.Config{
+			GetCertificate: cr.GetCertificateFunc(),
+		},
+		Handler: mux,
+	}
+	log.Fatal(server.ListenAndServeTLS("", ""))
 }
+
+///////////////////////////////////////////////
+type certificateReloader struct {
+	certMu   sync.RWMutex
+	cert     *tls.Certificate
+	certPath string
+	keyPath  string
+}
+
+func NewCertificateReloader(certPath, keyPath string) (*certificateReloader, error) {
+	result := &certificateReloader{
+		certPath: certPath,
+		keyPath:  keyPath,
+	}
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, err
+	}
+	result.cert = &cert
+
+	// TODO: switch to some other time interval?
+	tickerChannel := time.NewTicker(time.Minute * 30).C
+
+	go func() {
+		for range tickerChannel {
+			log.Printf("Reloading TLS certificate and key from %s and %s", certPath, keyPath)
+			if err := result.maybeReload(); err != nil {
+				log.Printf("Keeping old TLS certificate because the new one could not be loaded: %v", err)
+			}
+		}
+	}()
+
+	return result, nil
+}
+
+func (cr *certificateReloader) maybeReload() error {
+	newCert, err := tls.LoadX509KeyPair(cr.certPath, cr.keyPath)
+	if err != nil {
+		return err
+	}
+	cr.certMu.Lock()
+	defer cr.certMu.Unlock()
+	cr.cert = &newCert
+
+	log.Printf("Reloading certificate successfully!")
+
+	return nil
+}
+
+func (cr *certificateReloader) GetCertificateFunc() func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	return func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cr.certMu.RLock()
+		defer cr.certMu.RUnlock()
+		return cr.cert, nil
+	}
+}
+
+///////////////////////////////////////////
 
 func createConfigHandler() http.Handler {
 	c, err := config.ReadConfig()
