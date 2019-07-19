@@ -80,7 +80,6 @@ func main() {
 
 	cr, err := NewCertificateReloader(*certFile, *keyFile)
 	if err != nil {
-		log.Printf("certificate invalid here")
 		log.Fatal(err)
 	}
 
@@ -103,13 +102,13 @@ type certificateReloader struct {
 }
 
 func NewCertificateReloader(certPath, keyPath string) (*certificateReloader, error) {
-	result := &certificateReloader{
-		certPath: certPath,
-		keyPath:  keyPath,
-	}
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		return nil, err
+	}
+	result := &certificateReloader{
+		certPath: certPath,
+		keyPath:  keyPath,
 	}
 	result.cert = &cert
 
