@@ -41,6 +41,9 @@ import (
 
 const version = "1.2.0"
 
+// TODO: switch to some other time interval?
+const reloadInterval = time.Minute * 30
+
 var certFile *string = flag.String(
 	"certFile",
 	"/etc/webapigateway/cert/fullchain.pem",
@@ -95,7 +98,7 @@ func main() {
 
 ///////////////////////////////////////////////
 type certificateReloader struct {
-	certMu   sync.RWMutex
+	sync.RWMutex
 	cert     *tls.Certificate
 	certPath string
 	keyPath  string
@@ -112,8 +115,7 @@ func NewCertificateReloader(certPath, keyPath string) (*certificateReloader, err
 	}
 	result.cert = &cert
 
-	// TODO: switch to some other time interval?
-	tickerChannel := time.NewTicker(time.Minute * 30).C
+	tickerChannel := time.NewTicker(reloadInterval).C
 
 	go func() {
 		for range tickerChannel {
@@ -132,19 +134,19 @@ func (cr *certificateReloader) maybeReload() error {
 	if err != nil {
 		return err
 	}
-	cr.certMu.Lock()
-	defer cr.certMu.Unlock()
+	cr.Lock()
+	defer cr.Unlock()
 	cr.cert = &newCert
 
-	log.Printf("Reloading certificate successfully!")
+	log.Printf("Reloaded certificate successfully!")
 
 	return nil
 }
 
 func (cr *certificateReloader) GetCertificateFunc() func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		cr.certMu.RLock()
-		defer cr.certMu.RUnlock()
+		cr.RLock()
+		defer cr.RUnlock()
 		return cr.cert, nil
 	}
 }
