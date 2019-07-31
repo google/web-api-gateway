@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -31,13 +32,22 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	plus "google.golang.org/api/plus/v1"
+
 	"github.com/google/web-api-gateway/config"
+	"github.com/gorilla/mux"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
-const version = "1.1.0"
+// trying to addddd some feeeeee
+const version = "2.1.0"
+
+// TODO: switch to some other time interval?
+const reloadInterval = time.Minute * 30
 
 var certFile *string = flag.String(
 	"certFile",
@@ -57,25 +67,340 @@ var addr *string = flag.String(
 	"This is the address:port which the server listens to.",
 )
 
+var (
+	listTmpl        = parseTemplate("list.html")
+	editServiceTmpl = parseTemplate("editService.html")
+	editAccountTmpl = parseTemplate("editAccount.html")
+)
+
 func main() {
 	flag.Parse()
 
 	log.Println("Reading config file...")
 
+	////////////// below three should be not working :/
+	// TODO: move to use gorilla mux or
 	http.Handle("/service/", createConfigHandler())
 	http.HandleFunc("/authToken/", authTokenPage)
 	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
 	})
 
-	logger := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
-		http.DefaultServeMux.ServeHTTP(w, r)
-	})
+	sine := sineRegisterHandlers()
 
 	log.Printf("Starting web-api-gateway, version %s\n", version)
-	log.Fatal(http.ListenAndServeTLS(*addr, *certFile, *keyFile, logger))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
+		sine.ServeHTTP(w, r)
+	})
+
+	cr, err := NewCertificateReloader(*certFile, *keyFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	server := &http.Server{
+		// Addr: ":https",
+		Addr: ":8080",
+		TLSConfig: &tls.Config{
+			GetCertificate: cr.GetCertificateFunc(),
+		},
+		Handler: mux,
+	}
+	log.Fatal(server.ListenAndServeTLS("", ""))
 }
+
+//////////////////////////////////////////////////
+/////////////////////////////////////////////////
+type data struct {
+	Service *config.Service
+	Account *config.Account
+}
+
+type profile struct {
+	ID, DisplayName string
+	Emails          []*plus.PersonEmails
+}
+
+func sineRegisterHandlers() *mux.Router {
+	// c, err := config.ReadConfig()
+	r := mux.NewRouter()
+
+	r.Methods("GET").Path("/portal/").HandlerFunc(listHandler)
+	r.Methods("GET").Path("/portal/addservice").HandlerFunc(addServiceHandler)
+	r.Methods("GET").Path("/portal/editservice/{service}").HandlerFunc(editServiceHandler)
+	r.Methods("GET").Path("/portal/removeservice/{service}").HandlerFunc(removeServiceHandler)
+
+	r.Methods("GET").Path("/portal/editaccount/{service}/{account}").HandlerFunc(editAccountHandler)
+
+	r.Methods("POST").Path("/portal/saveservice").HandlerFunc(saveServiceHandler)
+	r.Methods("POST").Path("/portal/saveaccount").HandlerFunc(saveAccountHandler)
+
+	//////////////////////////////
+	// modifying already exisiting handlers
+	r.Methods("GET").Path("/version").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
+	})
+
+	// auth related handlers
+	r.Methods("GET").Path("/").HandlerFunc(loginHandler)
+	// r.Methods("GET").Path("/auth").HandlerFunc(oauthCallbackHandler)
+
+	return r
+}
+
+// loginHandler initiates an OAuth flow to the Google+ API
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	// add correct scope
+	oauthClient, err := google.DefaultClient(ctx, plus.UserinfoProfileScope)
+	if err != nil {
+		log.Printf("Can't get default oauth")
+		return
+	}
+	plusService, err := plus.New(oauthClient)
+	if err != nil {
+		log.Printf("Can't create plus service.")
+		return
+	}
+	profile, err := plusService.People.Get("me").Do()
+	if err != nil {
+		log.Printf("Can't fetch Google profiles: %s", err)
+		return
+	}
+	log.Printf("this profile: %s", stripProfile(profile))
+	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+}
+
+func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func listHandler(w http.ResponseWriter, r *http.Request) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+	listTmpl.Execute(w, r, *c)
+}
+
+func editServiceHandler(w http.ResponseWriter, r *http.Request) {
+	editHandler(w, r, editServiceTmpl)
+}
+
+func editAccountHandler(w http.ResponseWriter, r *http.Request) {
+	editHandler(w, r, editAccountTmpl)
+}
+
+func addServiceHandler(w http.ResponseWriter, r *http.Request) {
+	editServiceTmpl.Execute(w, r, nil)
+}
+
+func saveServiceHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.FormValue("PreviousServiceName")
+	u, err := config.NewServiceUpdater(name)
+	if err != nil {
+		log.Printf("Error getting updater: %s", err)
+		return
+	}
+	// e := userInput(r.FormValue("ServiceName"), u.Name) +
+	// userInput(r.FormValue("ClientID"), u.ClientID)
+	// TODO: add validations?????
+	// TODO: **** rename would break exsiting connections, so maybe pop-up?
+	u.Name(r.FormValue("ServiceName"))
+	u.ClientID(r.FormValue("ClientID"))
+	u.ClientSecret(r.FormValue("ClientSecret"))
+	u.AuthURL(r.FormValue("AuthURL"))
+	u.TokenURL(r.FormValue("TokenURL"))
+	u.Scopes(r.FormValue("Scopes"))
+	if u.Commit() != nil {
+		log.Printf("Error when saving")
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+}
+
+func saveAccountHandler(w http.ResponseWriter, r *http.Request) {
+	// sName := r.FormValue("ServiceName")
+	// aName := r.FormValue("PreviousAccountName")
+	// u, err := config.NewServiceUpdater(sName)
+	// if err != nil {
+	// 	log.Printf("Error getting updater: %s", err)
+	// 	return
+	// }
+
+	// c, err := config.ReadConfig()
+	// if err != nil {
+	// 	log.Printf("Error reading config file: %s", err)
+	// 	ErrorReadingConfig.ServeHTTP(w, r)
+	// 	return
+	// }
+	// TODO: if err!=nil
+	// _, service, err := serviceFromRequest(sName, c)
+	// i, account, err := accountFromRequest(aName, service)
+	// log.Println(i)
+	// u.Account(i, account)
+	// if u.Commit() != nil {
+	// 	log.Printf("Error when saving")
+	// 	return
+	// }
+	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+}
+
+func removeServiceHandler(w http.ResponseWriter, r *http.Request) {
+	// jian lve??
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+
+	serviceStr := mux.Vars(r)["service"]
+	i, _, err := serviceFromRequest(serviceStr, c)
+	if err != nil {
+		log.Printf("Error finding service : %s", err)
+		// adding another error?
+		return
+	}
+	log.Println(i)
+	config.SetServices(append(c.Services[:i], c.Services[i+1:]...))
+
+	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+}
+
+func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+
+	serviceStr := mux.Vars(r)["service"]
+	_, service, err := serviceFromRequest(serviceStr, c)
+	if err != nil {
+		log.Printf("Error finding service: %s", err)
+		// TODO:
+		// adding another error?
+		return
+	}
+	if tmpl == editServiceTmpl {
+		tmpl.Execute(w, r, service)
+	} else {
+		accountStr := mux.Vars(r)["account"]
+		_, account, err := accountFromRequest(accountStr, service)
+		if err != nil {
+			log.Printf("Error finding account: %s", err)
+			return
+		}
+		tmpl.Execute(w, r, data{service, account})
+	}
+}
+
+func serviceFromRequest(serviceStr string, c *config.Config) (int, *config.Service, error) {
+	for i, s := range c.Services {
+		if serviceStr == s.ServiceName {
+			return i, s, nil
+		}
+	}
+	return -1, nil, fmt.Errorf("No such service: %s", serviceStr)
+}
+
+func accountFromRequest(accountStr string, s *config.Service) (int, *config.Account, error) {
+	for i, a := range s.Accounts {
+		if accountStr == a.AccountName {
+			return i, a, nil
+		}
+	}
+	return -1, nil, fmt.Errorf("No such account: %s", accountStr)
+}
+
+func stripProfile(p *plus.Person) *profile {
+	return &profile{
+		Emails:      p.Emails,
+		ID:          p.Id,
+		DisplayName: p.DisplayName,
+	}
+}
+
+// func userInput(value string, handler func(string) error) string {
+// 		err := handler(value)
+// 		if err != nil {
+// 			return err.Error
+// 		}
+// 		return nil
+// }
+
+// type appHandler func(http.ResponseWriter, *http.Request)
+
+// func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// 	fn(w, r)
+// }
+
+////////////////////////////////////////////////
+///////////////////////////////////////////////
+
+///////////////////////////////////////////////
+type certificateReloader struct {
+	sync.RWMutex
+	cert     *tls.Certificate
+	certPath string
+	keyPath  string
+}
+
+func NewCertificateReloader(certPath, keyPath string) (*certificateReloader, error) {
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, err
+	}
+	result := &certificateReloader{
+		certPath: certPath,
+		keyPath:  keyPath,
+	}
+	result.cert = &cert
+
+	tickerChannel := time.NewTicker(reloadInterval).C
+
+	go func() {
+		for range tickerChannel {
+			log.Printf("Reloading TLS certificate and key from %s and %s", certPath, keyPath)
+			if err := result.maybeReload(); err != nil {
+				log.Printf("Keeping old TLS certificate because the new one could not be loaded: %v", err)
+			}
+		}
+	}()
+
+	return result, nil
+}
+
+func (cr *certificateReloader) maybeReload() error {
+	newCert, err := tls.LoadX509KeyPair(cr.certPath, cr.keyPath)
+	if err != nil {
+		return err
+	}
+	cr.Lock()
+	defer cr.Unlock()
+	cr.cert = &newCert
+
+	log.Printf("Reloaded certificate successfully!")
+
+	return nil
+}
+
+func (cr *certificateReloader) GetCertificateFunc() func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	return func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cr.RLock()
+		defer cr.RUnlock()
+		return cr.cert, nil
+	}
+}
+
+///////////////////////////////////////////
 
 func createConfigHandler() http.Handler {
 	c, err := config.ReadConfig()
