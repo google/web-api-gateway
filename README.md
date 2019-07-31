@@ -1,6 +1,6 @@
-# Web Api Gateway
+# Web API Gateway
 
-Web Api Gateway allows you to selectivley share API access with partners.
+Web API Gateway allows you to selectivley share API access with partners.
 
 # Setup Guide
 
@@ -19,7 +19,7 @@ given access to the API.
 
 ## 3. Server
 
-You will need somewhere to run Web Api Gateway. Your options include one of the
+You will need somewhere to run Web API Gateway. Your options include one of the
 following:
 
 *   A virtual machine running on a cloud provider. Recommended, this is what
@@ -74,12 +74,12 @@ access.
 
 ## 6. SSL Certificate
 
-You must set up certificates for your Web Api Gateway. This allows clients to
-connect to Web Api Gateway with HTTPS, and know they’re talking to the correct
+You must set up certificates for your Web API Gateway. This allows clients to
+connect to Web API Gateway with HTTPS, and know they’re talking to the correct
 server. If you have an existing process for creating and managing certificates,
 you will likely want to use that.
 
-The easiest way to quickly get a certificate for the domain used for Web Api
+The easiest way to quickly get a certificate for the domain used for Web API
 Gateway is by using Let’s Encrypt.
 
 1.  Go to https://certbot.eff.org/
@@ -141,7 +141,7 @@ Gateway is by using Let’s Encrypt.
 6.  Let’s Encrypt certificates only last for 90 days. However certbot should
     have set up a cron job to automatically renew it.
 
-## 7. Getting Web Api Gateway
+## 7. Getting Web API Gateway
 
 The code is located at: https://github.com/google/web-api-gateway
 
@@ -150,7 +150,7 @@ The code is located at: https://github.com/google/web-api-gateway
 #### Git:
 
 Git is a code storing program, which will be able to retrieve a current copy of
-Web Api Gateway’s source code. If you’re using the suggested Ubuntu VM approach,
+Web API Gateway’s source code. If you’re using the suggested Ubuntu VM approach,
 run this command to install Git:
 
 ```
@@ -167,7 +167,7 @@ sudo apt install curl
 
 #### Docker:
 
-Dockers handles building and running Web Api Gateway. If you’re using the
+Dockers handles building and running Web API Gateway. If you’re using the
 suggested Ubuntu VM approach, run these commands to install Docker:
 
 ```
@@ -200,7 +200,7 @@ cd ~/web-api-gateway
 sudo docker build -t web-api-gateway .
 ```
 
-## 8. Running Web Api Gateway
+## <a name="runservice"></a>8. Running Web API Gateway
 
 Now you’re all set to start the server: (*replace the example url with your
 url*)
@@ -234,7 +234,7 @@ notices. This can help you determine what is causing the startup problems.
 
 ### If you're not using Docker
 
-Web Api Gateway requires access to three files:
+Web API Gateway requires access to three files:
 
 *   fullchain.pem
     *   Used in ssl/https
@@ -246,7 +246,7 @@ Web Api Gateway requires access to three files:
     *   The path can be changed using the flag `keyFile`
 *   The config.
     *   Used to store the accounts and credentials for access.
-    *   If the Web Api Gateway is started and this file does not exist, the
+    *   If the Web API Gateway is started and this file does not exist, the
         server will start but only return errors. If you start the setuptool, it
         will create a new config. If you're running with Docker (or Kubernetes),
         it's recommended that you let Docker build everything, run the setuptool
@@ -300,7 +300,7 @@ sudo docker restart web-api-gateway
 
 ## 10. Retrieve Account Key to connect a client
 
-When you are asked for an account key to connect an application to the Web Api
+When you are asked for an account key to connect an application to the Web API
 Gateway, you can retrieve it using the same command as used to setup:
 
 ```
@@ -312,3 +312,30 @@ link, and copy the Account Key that is provided.
 
 Use this to link a remote client to the web-api-gateway. You will be prompted
 for the account key from the remote service that you’re using.
+
+## 11. Update Web API Gateway
+
+To update the Web API Gateway to a newer version:
+
+Pull the latest version of web-api-gateway:
+
+```
+cd ~/web-api-gateway
+sudo git pull
+```
+
+Rebuild the docker image with the new change:
+
+```
+sudo docker build -t web-api-gateway . 
+```
+
+Stop and remove the old container:
+```
+sudo docker stop web-api-gateway
+sudo docker rm web-api-gateway 
+``` 
+
+Start the server using [Step 8](#runservice) 
+
+Verfiy the Web API Gateway is now on a newer version by visiting "/version" page.
