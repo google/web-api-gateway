@@ -36,6 +36,7 @@ import (
 	"time"
 
 	plus "google.golang.org/api/plus/v1"
+	option "google.golang.org/api/option"
 
 	"github.com/google/web-api-gateway/config"
 	"github.com/gorilla/mux"
@@ -179,7 +180,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Can't get default oauth")
 		return
 	}
-	plusService, err := plus.New(oauthClient)
+	plusService, err := plus.NewService(ctx, option.WithHTTPClient(oauthClient))
 	if err != nil {
 		log.Printf("Can't create plus service.")
 		return
