@@ -68,21 +68,21 @@ var addr *string = flag.String(
 )
 
 var listName *string = flag.String(
-  "list",
-  "/go/src/github.com/google/web-api-gateway/server/templates/list.html",
-  "This is list.html.",
+	"list",
+	"/go/src/github.com/google/web-api-gateway/server/templates/list.html",
+	"This is list.html.",
 )
 
 var editServiceName *string = flag.String(
-  "editService",
-  "/go/src/github.com/google/web-api-gateway/server/templates/editService.html",
-  "This is editService.html.",
+	"editService",
+	"/go/src/github.com/google/web-api-gateway/server/templates/editService.html",
+	"This is editService.html.",
 )
 
 var editAccountName *string = flag.String(
-  "editAccount",
-  "/go/src/github.com/google/web-api-gateway/server/templates/editAccount.html",
-  "This is editAccount.html.",
+	"editAccount",
+	"/go/src/github.com/google/web-api-gateway/server/templates/editAccount.html",
+	"This is editAccount.html.",
 )
 
 var (
@@ -173,7 +173,8 @@ func sineRegisterHandlers() *mux.Router {
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	// add correct scope
-	oauthClient, err := google.DefaultClient(ctx, plus.UserinfoProfileScope)
+	oauthClient, err := google.DefaultClient(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
+		plus.PlusMeScope, plus.UserinfoEmailScope)
 	if err != nil {
 		log.Printf("Can't get default oauth")
 		return
