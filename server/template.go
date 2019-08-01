@@ -17,20 +17,27 @@ limitations under the License.
 package main
 
 import (
+  "flag"
 	"fmt"
 	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"path/filepath"
+)
+
+var baseName *string = flag.String(
+  "base",
+  "/etc/webapigateway/server/templates/base.html",
+  "This is base.html.",
 )
 
 // parseTemplate applies a given file to the body of the base template.
 func parseTemplate(filename string) *appTemplate {
-	tmpl := template.Must(template.ParseFiles("templates/base.html"))
+	tmpl := template.Must(template.ParseFiles(*baseName))
 
 	// Put the named file into a template called "body"
-	path := filepath.Join("templates", filename)
+	// path := filepath.Join("templates", filename)
+  path := filename
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		panic(fmt.Errorf("could not read template: %v", err))

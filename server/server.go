@@ -67,10 +67,28 @@ var addr *string = flag.String(
 	"This is the address:port which the server listens to.",
 )
 
+var listName *string = flag.String(
+  "list",
+  "/etc/webapigateway/server/templates/list.html",
+  "This is list.html.",
+)
+
+var editServiceName *string = flag.String(
+  "editService",
+  "/etc/webapigateway/server/templates/editService.html",
+  "This is editService.html.",
+)
+
+var editAccountName *string = flag.String(
+  "editAccount",
+  "/etc/webapigateway/server/templates/editAccount.html",
+  "This is editAccount.html.",
+)
+
 var (
-	listTmpl        = parseTemplate("list.html")
-	editServiceTmpl = parseTemplate("editService.html")
-	editAccountTmpl = parseTemplate("editAccount.html")
+	listTmpl        = parseTemplate(*listName)
+	editServiceTmpl = parseTemplate(*editServiceName)
+	editAccountTmpl = parseTemplate(*editAccountName)
 )
 
 func main() {
@@ -102,8 +120,8 @@ func main() {
 	}
 
 	server := &http.Server{
-		// Addr: ":https",
-		Addr: ":8080",
+		Addr: ":https",
+		// Addr: ":8080",
 		TLSConfig: &tls.Config{
 			GetCertificate: cr.GetCertificateFunc(),
 		},
