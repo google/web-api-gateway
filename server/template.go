@@ -27,7 +27,7 @@ import (
 
 var baseName *string = flag.String(
   "base",
-  "/etc/webapigateway/server/templates/base.html",
+  "/go/src/github.com/google/web-api-gateway/server/templates/base.html",
   "This is base.html.",
 )
 

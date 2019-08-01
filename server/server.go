@@ -69,19 +69,19 @@ var addr *string = flag.String(
 
 var listName *string = flag.String(
   "list",
-  "/etc/webapigateway/server/templates/list.html",
+  "/go/src/github.com/google/web-api-gateway/server/templates/list.html",
   "This is list.html.",
 )
 
 var editServiceName *string = flag.String(
   "editService",
-  "/etc/webapigateway/server/templates/editService.html",
+  "/go/src/github.com/google/web-api-gateway/server/templates/editService.html",
   "This is editService.html.",
 )
 
 var editAccountName *string = flag.String(
   "editAccount",
-  "/etc/webapigateway/server/templates/editAccount.html",
+  "/go/src/github.com/google/web-api-gateway/server/templates/editAccount.html",
   "This is editAccount.html.",
 )
 
