@@ -35,8 +35,8 @@ import (
 	"sync"
 	"time"
 
-	plus "google.golang.org/api/plus/v1"
 	option "google.golang.org/api/option"
+	plus "google.golang.org/api/plus/v1"
 
 	"github.com/google/web-api-gateway/config"
 	"github.com/gorilla/mux"
@@ -86,12 +86,6 @@ var editAccountName *string = flag.String(
 	"This is editAccount.html.",
 )
 
-var (
-	listTmpl        = parseTemplate(*listName)
-	editServiceTmpl = parseTemplate(*editServiceName)
-	editAccountTmpl = parseTemplate(*editAccountName)
-)
-
 func main() {
 	flag.Parse()
 
@@ -122,7 +116,6 @@ func main() {
 
 	server := &http.Server{
 		Addr: ":https",
-		// Addr: ":8080",
 		TLSConfig: &tls.Config{
 			GetCertificate: cr.GetCertificateFunc(),
 		},
@@ -133,19 +126,36 @@ func main() {
 
 //////////////////////////////////////////////////
 /////////////////////////////////////////////////
+var (
+	baseTmpl        = parseTemplate("")
+	listTmpl        = parseTemplate(*listName)
+	editServiceTmpl = parseTemplate(*editServiceName)
+	editAccountTmpl = parseTemplate(*editAccountName)
+)
+
+var oauthConf *oauth2.Config = &oauth2.Config{
+	ClientID:     "523939206127-hpfo11ctjfsjdl25m3j2udsgh19l03hp.apps.googleusercontent.com",
+	ClientSecret: "QNxATqDijXyxdAlRxU-itMXB",
+	Scopes:       []string{"email", "profile"},
+	Endpoint:     google.Endpoint,
+}
+
+var whites []*profile
+
 type data struct {
 	Service *config.Service
 	Account *config.Account
 }
 
 type profile struct {
-	ID, DisplayName string
+	ID, DisplayName, ImageURL string
 	Emails          []*plus.PersonEmails
 }
 
 func sineRegisterHandlers() *mux.Router {
-	// c, err := config.ReadConfig()
 	r := mux.NewRouter()
+
+	r.Methods("GET").Path("/").HandlerFunc(baseHandler)
 
 	r.Methods("GET").Path("/portal/").HandlerFunc(listHandler)
 	r.Methods("GET").Path("/portal/addservice").HandlerFunc(addServiceHandler)
@@ -164,38 +174,110 @@ func sineRegisterHandlers() *mux.Router {
 	})
 
 	// auth related handlers
-	r.Methods("GET").Path("/").HandlerFunc(loginHandler)
-	// r.Methods("GET").Path("/auth").HandlerFunc(oauthCallbackHandler)
+	r.Methods("GET").Path("/login").HandlerFunc(loginHandler)
+	r.Methods("GET").Path("/auth").HandlerFunc(oauthCallbackHandler)
 
 	return r
 }
 
+func baseHandler(w http.ResponseWriter, r *http.Request) {
+	baseTmpl.Execute(w, r, nil)
+}
+
 // loginHandler initiates an OAuth flow to the Google+ API
 func loginHandler(w http.ResponseWriter, r *http.Request) {
+	// ctx := context.Background()
+	// creds, err := google.FindDefaultCredentials(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
+	// 	plus.PlusMeScope, plus.UserinfoEmailScope)
+	//  if err != nil {
+	//  	log.Printf("Can't get default creds")
+	//  	return
+	//  }
+	// 	b, err := ioutil.ReadFile("/go/src/github.com/google/web-api-gateway/credentials.json")
+	// 	if err != nil {
+	// 		log.Printf("unable to read file")
+	// 		return
+	// 	}
+	// 	log.Println(b)
+	// oauthConf, err := google.ConfigFromJSON(b, plus.UserinfoProfileScope, plus.PlusLoginScope,
+	// 	plus.PlusMeScope, plus.UserinfoEmailScope)
+	// if err != nil {
+	// 	log.Printf("Can't get Oauthconfig from default creds")
+	// 	return
+	// }
+	// {"web":{"client_id":"523939206127-3pr1qbrn0g78l6r9nu10l733q9obgn0t.apps.googleusercontent.com",
+	// "project_id":"ds-gateway-test",
+	// "auth_uri":"https://accounts.google.com/o/oauth2/auth",
+	// "token_uri":"https://oauth2.googleapis.com/token",
+	// "auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs",
+	// "client_secret":"zKY48Os4L8xKAuQoiBFqrLkW",
+	// "javascript_origins":["http://test-web-api-gateway.sriramkp.com"]}}
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+	redirectUrl, err := url.Parse(c.Url)
+	if err != nil {
+		log.Printf("Can't parse URL.")
+		return
+	}
+	redirectUrl.Path = "/auth"
+	oauthConf.RedirectURL = redirectUrl.String()
+	url := oauthConf.AuthCodeURL("state", oauth2.ApprovalForce)
+	// log.Println(url)
+	http.Redirect(w, r, url, http.StatusFound)
+}
+
+func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	// add correct scope
-	oauthClient, err := google.DefaultClient(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
-		plus.PlusMeScope, plus.UserinfoEmailScope)
+	// // add correct scope
+	// oauthClient, err := google.DefaultClient(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
+	// 	plus.PlusMeScope, plus.UserinfoEmailScope)
+	// if err != nil {
+	// 	log.Printf("Can't get default oauth")
+	// 	return
+	// }
+	// plusService, err := plus.NewService(ctx, option.WithHTTPClient(oauthClient))
+
+	// // creds, err := google.FindDefaultCredentials(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
+	// // 	plus.PlusMeScope, plus.UserinfoEmailScope)
+	// //  if err != nil {
+	// //  	log.Printf("Can't get default creds")
+	// //  	return
+	// //  }
+	// // plusService, err := plus.NewService(ctx, option.WithCredentials(creds))
+	// if err != nil {
+	// 	log.Printf("Can't create plus service.")
+	// 	return
+	// }
+	// profile, err := plusService.People.Get("me").Do()
+	// if err != nil {
+	// 	log.Printf("Can't fetch Google profiles: %s", err)
+	// 	return
+	// }
+	// log.Printf("profile is: %s", *stripProfile(profile))
+	code := r.FormValue("code")
+	tok, err := oauthConf.Exchange(ctx, code)
 	if err != nil {
-		log.Printf("Can't get default oauth")
+		log.Printf("Could not get auth token")
 		return
 	}
-	plusService, err := plus.NewService(ctx, option.WithHTTPClient(oauthClient))
+	plusService, err := plus.NewService(ctx, option.WithTokenSource(oauthConf.TokenSource(ctx, tok)))
 	if err != nil {
-		log.Printf("Can't create plus service.")
+		log.Printf("Could not get plus service")
 		return
 	}
-	profile, err := plusService.People.Get("me").Do()
+	person, err := plusService.People.Get("me").Do()
 	if err != nil {
 		log.Printf("Can't fetch Google profiles: %s", err)
 		return
 	}
-	log.Printf("this profile: %s", stripProfile(profile))
+	profile := stripProfile(person)
+	log.Printf("id is: %s, name is: %s, emails are : %s", profile.ID, profile.DisplayName, profile.Emails)
+	whites = append(whites, profile)
 	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
-}
-
-func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
-
 }
 
 func listHandler(w http.ResponseWriter, r *http.Request) {
@@ -345,6 +427,7 @@ func stripProfile(p *plus.Person) *profile {
 		Emails:      p.Emails,
 		ID:          p.Id,
 		DisplayName: p.DisplayName,
+		ImageURL: p.Image.Url,
 	}
 }
 
