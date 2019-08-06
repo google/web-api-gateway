@@ -31,10 +31,31 @@
     <ul class="nav navbar-nav">
       <li><a href="/portal/">Services</a></li>
     </ul>
+
+    <!-- [START auth] -->
+    {{if .Profile}}
+    <form method="post" action="/logout" class="navbar-form navbar-right">
+      <button class="btn btn-default">Log out</button>
+    </form>
+    <div class="navbar-text navbar-right">
+      {{if .Profile.ImageURL}}
+        <img class="img-circle" width="24" src="{{.Profile.ImageURL}}">
+      {{end}}
+      <span>{{.Profile.DisplayName}}</span>
+    </div>
   </div>
 </div>
 <div class="container">
   {{template "body" .Data}}
 </div>
+<div class="container">
+  {{else}}
+  <div class="navbar-text navbar-right">
+    <a href="/login">Log in</a>
+  </div>
+  {{end}}
+  <!-- [END auth] -->
+</div>
+
 </body>
 </html>
