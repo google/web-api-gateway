@@ -134,8 +134,8 @@ var (
 )
 
 var oauthConf *oauth2.Config = &oauth2.Config{
-	ClientID:     "523939206127-3pr1qbrn0g78l6r9nu10l733q9obgn0t.apps.googleusercontent.com",
-	ClientSecret: "zKY48Os4L8xKAuQoiBFqrLkW",
+	ClientID:     "523939206127-hpfo11ctjfsjdl25m3j2udsgh19l03hp.apps.googleusercontent.com",
+	ClientSecret: "QNxATqDijXyxdAlRxU-itMXB",
 	Scopes:       []string{"email", "profile"},
 	Endpoint:     google.Endpoint,
 }
@@ -186,45 +186,11 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 
 // loginHandler initiates an OAuth flow to the Google+ API
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	// ctx := context.Background()
-	// creds, err := google.FindDefaultCredentials(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
-	// 	plus.PlusMeScope, plus.UserinfoEmailScope)
-	//  if err != nil {
-	//  	log.Printf("Can't get default creds")
-	//  	return
-	//  }
-	// 	b, err := ioutil.ReadFile("/go/src/github.com/google/web-api-gateway/credentials.json")
-	// 	if err != nil {
-	// 		log.Printf("unable to read file")
-	// 		return
-	// 	}
-	// 	log.Println(b)
-	// oauthConf, err := google.ConfigFromJSON(b, plus.UserinfoProfileScope, plus.PlusLoginScope,
-	// 	plus.PlusMeScope, plus.UserinfoEmailScope)
-	// if err != nil {
-	// 	log.Printf("Can't get Oauthconfig from default creds")
-	// 	return
-	// }
-	// {"web":{"client_id":"523939206127-3pr1qbrn0g78l6r9nu10l733q9obgn0t.apps.googleusercontent.com",
-	// "project_id":"ds-gateway-test",
-	// "auth_uri":"https://accounts.google.com/o/oauth2/auth",
-	// "token_uri":"https://oauth2.googleapis.com/token",
-	// "auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs",
-	// "client_secret":"zKY48Os4L8xKAuQoiBFqrLkW",
-	// "javascript_origins":["http://test-web-api-gateway.sriramkp.com"]}}
-	c, err := config.ReadConfig()
-	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
-	}
-	redirectUrl, err := url.Parse(c.Url)
-	if err != nil {
-		log.Printf("Can't parse URL.")
-		return
-	}
-	redirectUrl.Path = "/auth"
-	oauthConf.RedirectURL = redirectUrl.String()
+	// TODO: emmm.......
+	redirectUrl := "https://127.0.0.1/auth"
+	oauthConf.RedirectURL = redirectUrl
+	// redirectUrl.Path = "/auth"
+	// oauthConf.RedirectURL = redirectUrl.String()
 	url := oauthConf.AuthCodeURL("state", oauth2.ApprovalForce)
 	// log.Println(url)
 	http.Redirect(w, r, url, http.StatusFound)
