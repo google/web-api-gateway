@@ -68,23 +68,23 @@ var addr *string = flag.String(
 	"This is the address:port which the server listens to.",
 )
 
-var listName *string = flag.String(
-	"list",
-	"/go/src/github.com/google/web-api-gateway/server/templates/list.html",
-	"This is list.html.",
-)
+// var listName *string = flag.String(
+// 	"list",
+// 	"/go/src/github.com/google/web-api-gateway/server/templates/list.html",
+// 	"This is list.html.",
+// )
 
-var editServiceName *string = flag.String(
-	"editService",
-	"/go/src/github.com/google/web-api-gateway/server/templates/editService.html",
-	"This is editService.html.",
-)
+// var editServiceName *string = flag.String(
+// 	"editService",
+// 	"/go/src/github.com/google/web-api-gateway/server/templates/editService.html",
+// 	"This is editService.html.",
+// )
 
-var editAccountName *string = flag.String(
-	"editAccount",
-	"/go/src/github.com/google/web-api-gateway/server/templates/editAccount.html",
-	"This is editAccount.html.",
-)
+// var editAccountName *string = flag.String(
+// 	"editAccount",
+// 	"/go/src/github.com/google/web-api-gateway/server/templates/editAccount.html",
+// 	"This is editAccount.html.",
+// )
 
 func main() {
 	flag.Parse()
@@ -128,14 +128,15 @@ func main() {
 /////////////////////////////////////////////////
 var (
 	baseTmpl        = parseTemplate("")
-	listTmpl        = parseTemplate(*listName)
-	editServiceTmpl = parseTemplate(*editServiceName)
-	editAccountTmpl = parseTemplate(*editAccountName)
+	listTmpl        = parseTemplate(*templatesFolder + "list.html")
+	editServiceTmpl = parseTemplate(*templatesFolder + "editService.html")
+	editAccountTmpl = parseTemplate(*templatesFolder + "editAccount.html")
+	keyTmpl         = parseTemplate(*templatesFolder + "key.html")
 )
 
 var oauthConf *oauth2.Config = &oauth2.Config{
-	ClientID:     "523939206127-hpfo11ctjfsjdl25m3j2udsgh19l03hp.apps.googleusercontent.com",
-	ClientSecret: "QNxATqDijXyxdAlRxU-itMXB",
+	ClientID:     "523939206127-3pr1qbrn0g78l6r9nu10l733q9obgn0t.apps.googleusercontent.com",
+	ClientSecret: "zKY48Os4L8xKAuQoiBFqrLkW",
 	Scopes:       []string{"email", "profile"},
 	Endpoint:     google.Endpoint,
 }
@@ -149,7 +150,7 @@ type data struct {
 
 type profile struct {
 	ID, DisplayName, ImageURL string
-	Emails          []*plus.PersonEmails
+	Emails                    []*plus.PersonEmails
 }
 
 func sineRegisterHandlers() *mux.Router {
@@ -162,7 +163,9 @@ func sineRegisterHandlers() *mux.Router {
 	r.Methods("GET").Path("/portal/editservice/{service}").HandlerFunc(editServiceHandler)
 	r.Methods("GET").Path("/portal/removeservice/{service}").HandlerFunc(removeServiceHandler)
 
+	r.Methods("GET").Path("/portal/addaccount/{service}").HandlerFunc(addAccountHandler)
 	r.Methods("GET").Path("/portal/editaccount/{service}/{account}").HandlerFunc(editAccountHandler)
+	r.Methods("GET").Path("/portal/retrievekey/{service}/{account}").HandlerFunc(retrieveKeyHandler)
 
 	r.Methods("POST").Path("/portal/saveservice").HandlerFunc(saveServiceHandler)
 	r.Methods("POST").Path("/portal/saveaccount").HandlerFunc(saveAccountHandler)
@@ -186,44 +189,29 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 
 // loginHandler initiates an OAuth flow to the Google+ API
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: emmm.......
-	redirectUrl := "https://127.0.0.1/auth"
-	oauthConf.RedirectURL = redirectUrl
-	// redirectUrl.Path = "/auth"
-	// oauthConf.RedirectURL = redirectUrl.String()
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+	redirectUrl, err := url.Parse(c.Url)
+	if err != nil {
+		log.Printf("Can't parse URL.")
+		return
+	}
+
+	// installed app oauth redirect_uri, this can't satisfy requirements
+	// redirectUrl := "https://127.0.0.1/auth"
+	// oauthConf.RedirectURL = redirectUrl
+	redirectUrl.Path = "/auth"
+	oauthConf.RedirectURL = redirectUrl.String()
 	url := oauthConf.AuthCodeURL("state", oauth2.ApprovalForce)
-	// log.Println(url)
 	http.Redirect(w, r, url, http.StatusFound)
 }
 
 func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	// // add correct scope
-	// oauthClient, err := google.DefaultClient(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
-	// 	plus.PlusMeScope, plus.UserinfoEmailScope)
-	// if err != nil {
-	// 	log.Printf("Can't get default oauth")
-	// 	return
-	// }
-	// plusService, err := plus.NewService(ctx, option.WithHTTPClient(oauthClient))
-
-	// // creds, err := google.FindDefaultCredentials(ctx, plus.UserinfoProfileScope, plus.PlusLoginScope,
-	// // 	plus.PlusMeScope, plus.UserinfoEmailScope)
-	// //  if err != nil {
-	// //  	log.Printf("Can't get default creds")
-	// //  	return
-	// //  }
-	// // plusService, err := plus.NewService(ctx, option.WithCredentials(creds))
-	// if err != nil {
-	// 	log.Printf("Can't create plus service.")
-	// 	return
-	// }
-	// profile, err := plusService.People.Get("me").Do()
-	// if err != nil {
-	// 	log.Printf("Can't fetch Google profiles: %s", err)
-	// 	return
-	// }
-	// log.Printf("profile is: %s", *stripProfile(profile))
 	code := r.FormValue("code")
 	tok, err := oauthConf.Exchange(ctx, code)
 	if err != nil {
@@ -266,6 +254,23 @@ func editAccountHandler(w http.ResponseWriter, r *http.Request) {
 
 func addServiceHandler(w http.ResponseWriter, r *http.Request) {
 	editServiceTmpl.Execute(w, r, nil)
+}
+
+func addAccountHandler(w http.ResponseWriter, r *http.Request) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+
+	serviceStr := mux.Vars(r)["service"]
+	_, service, err := serviceFromRequest(serviceStr, c)
+	if err != nil {
+		log.Printf("Error finding service: %s", err)
+		return
+	}
+	editAccountTmpl.Execute(w, r, data{service, nil})
 }
 
 func saveServiceHandler(w http.ResponseWriter, r *http.Request) {
@@ -316,6 +321,7 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) {
 	// 	log.Printf("Error when saving")
 	// 	return
 	// }
+	// TODO: readback value for GenerateCreds, and call to another handler.
 	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
 }
 
@@ -370,6 +376,35 @@ func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) {
 	}
 }
 
+func retrieveKeyHandler(w http.ResponseWriter, r *http.Request) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+
+	serviceStr := mux.Vars(r)["service"]
+	_, service, err := serviceFromRequest(serviceStr, c)
+	if err != nil {
+		log.Printf("Error finding service: %s", err)
+		return
+	}
+	accountStr := mux.Vars(r)["account"]
+	_, account, err := accountFromRequest(accountStr, service)
+	if err != nil {
+		log.Printf("Error finding account: %s", err)
+		return
+	}
+	key, err := config.CreateAccountKey(c, service, account)
+	if err != nil {
+		fmt.Println("Error creating account key:")
+		fmt.Println(err)
+		return
+	}
+	keyTmpl.Execute(w, r, key)
+}
+
 func serviceFromRequest(serviceStr string, c *config.Config) (int, *config.Service, error) {
 	for i, s := range c.Services {
 		if serviceStr == s.ServiceName {
@@ -393,7 +428,7 @@ func stripProfile(p *plus.Person) *profile {
 		Emails:      p.Emails,
 		ID:          p.Id,
 		DisplayName: p.DisplayName,
-		ImageURL: p.Image.Url,
+		ImageURL:    p.Image.Url,
 	}
 }
 

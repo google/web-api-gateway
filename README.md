@@ -200,7 +200,7 @@ cd ~/web-api-gateway
 sudo docker build -t web-api-gateway .
 ```
 
-## 8. Running Web Api Gateway
+## <a name="runservice"></a>8. Running Web Api Gateway
 
 Now you’re all set to start the server: (*replace the example url with your
 url*)
@@ -312,3 +312,30 @@ link, and copy the Account Key that is provided.
 
 Use this to link a remote client to the web-api-gateway. You will be prompted
 for the account key from the remote service that you’re using.
+
+## 11. Update Web Api Gateway
+
+To update the Web Api Gateway to a newer version:
+
+Pull the latest version of web-api-gateway:
+
+```
+cd ~/web-api-gateway
+sudo git pull
+```
+
+Rebuild the docker image with the new change:
+
+```
+sudo docker build -t web-api-gateway . 
+```
+
+Stop and remove the old container:
+```
+sudo docker stop web-api-gateway
+sudo docker rm web-api-gateway 
+``` 
+
+Start the server using [Step 8](#runservice) 
+
+Verfiy the Web Api Gateway is now on a newer version by visiting "/version" page.

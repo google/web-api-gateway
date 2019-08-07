@@ -17,7 +17,10 @@ limitations under the License.
 package config
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -119,7 +122,6 @@ func (u *ServiceUpdater) Commit() error {
 }
 
 func (u *ServiceUpdater) Account(idx int, account *Account) error {
-	// log.Printf("!! %d", idx)
 	u.accounts[idx] = account
 	return nil
 }
@@ -197,6 +199,27 @@ func (u *ServiceUpdater) Scopes(scopes string) error {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+func CreateAccountKey(c *Config, s *Service, a *Account) (string, error) {
+	j := struct {
+		WebGatewayUrl string
+		Protocol      string
+		PrivateKey    string
+	}{
+		WebGatewayUrl: c.Url,
+		Protocol:      a.ClientCreds.Protocol,
+		PrivateKey:    a.ClientCreds.PrivateKey,
+	}
+
+	b, err := json.Marshal(j)
+	if err != nil {
+		return "", err
+	}
+
+	inner := base64.StdEncoding.EncodeToString(b)
+
+	return fmt.Sprintf("KEYBEGIN_%s/%s_%s_KEYEND", s.ServiceName, a.AccountName, inner), nil
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////

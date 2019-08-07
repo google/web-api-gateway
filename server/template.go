@@ -25,23 +25,29 @@ import (
 	"net/http"
 )
 
-var baseName *string = flag.String(
-	"base",
-	"/go/src/github.com/google/web-api-gateway/server/templates/base.html",
-	"This is base.html.",
+// var baseName *string = flag.String(
+// 	"base",
+// 	"/go/src/github.com/google/web-api-gateway/server/templates/base.html",
+// 	"This is base.html.",
+// )
+
+var templatesFolder *string = flag.String(
+	"templatesfolder",
+	"/go/src/github.com/google/web-api-gateway/server/templates/",
+	"This is the path for the templates folder.",
 )
 
 // parseTemplate applies a given file to the body of the base template.
 func parseTemplate(filename string) *appTemplate {
-	tmpl := template.Must(template.ParseFiles(*baseName))
-  tmpl.New("body").Parse("\n")
+	tmpl := template.Must(template.ParseFiles(*templatesFolder + "base.html"))
+	tmpl.New("body").Parse("\n")
 	if filename != "" {
-  	b, err := ioutil.ReadFile(filename)
-  	if err != nil {
-  		panic(fmt.Errorf("could not read template: %v", err))
-  	}
-  	template.Must(tmpl.Lookup("body").Parse(string(b)))
-  }
+		b, err := ioutil.ReadFile(filename)
+		if err != nil {
+			panic(fmt.Errorf("could not read template: %v", err))
+		}
+		template.Must(tmpl.Lookup("body").Parse(string(b)))
+	}
 
 	return &appTemplate{tmpl.Lookup("base.html")}
 }
@@ -55,8 +61,8 @@ type appTemplate struct {
 // information to the base template.
 func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data interface{}) {
 	d := struct {
-		Data interface{}
-    Profile *profile
+		Data    interface{}
+		Profile *profile
 		// LoginURL    string
 		// LogoutURL   string
 	}{
@@ -64,9 +70,9 @@ func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data in
 		// LoginURL:    "/login?redirect=" + r.URL.RequestURI(),
 		// LogoutURL:   "/logout?redirect=" + r.URL.RequestURI(),
 	}
-  if r.URL.RequestURI() != "/" {
-    d.Profile = whites[0]
-  }
+	if r.URL.RequestURI() != "/" {
+		d.Profile = whites[0]
+	}
 	// // log.Println(d)
 	// // if d.AuthEnabled {
 	// //   // Ignore any errors.
