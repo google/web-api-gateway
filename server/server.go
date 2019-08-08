@@ -266,23 +266,23 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	profile := stripProfile(person)
-	emailValue := profile.Emails[0].Value
 
-	c, err := config.ReadConfig()
-	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
+	// disable for now, re-enable later :D
+	// c, err := config.ReadConfig()
+	// if err != nil {
+	// 	log.Printf("Error reading config file: %s", err)
+	// 	ErrorReadingConfig.ServeHTTP(w, r)
+	// 	return
+	// }
+	// emailValue := profile.Emails[0].Value
+	// if c.Users[emailValue] {
+	session.Values[oauthTokenSessionKey] = tok
+	session.Values[profileSessionKey] = profile
+	if err := session.Save(r, w); err != nil {
+		fmt.Printf("could not save session: %v", err)
 		return
 	}
-
-	if c.Users[emailValue] {
-		session.Values[oauthTokenSessionKey] = tok
-		session.Values[profileSessionKey] = profile
-		if err := session.Save(r, w); err != nil {
-			fmt.Printf("could not save session: %v", err)
-			return
-		}
-	}
+	// }
 
 	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
 }
