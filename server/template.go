@@ -57,25 +57,12 @@ func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data in
 	d := struct {
 		Data    interface{}
 		Profile *profile
-		// LoginURL    string
-		// LogoutURL   string
 	}{
 		Data: data,
-		// LoginURL:    "/login?redirect=" + r.URL.RequestURI(),
-		// LogoutURL:   "/logout?redirect=" + r.URL.RequestURI(),
 	}
-	// if r.URL.RequestURI() != "/" {
 	d.Profile = profileFromSession(r)
-	// }
-	// // log.Println(d)
-	// // if d.AuthEnabled {
-	// //   // Ignore any errors.
-	// //   d.Profile = profileFromSession(r)
-	// // }
-
 	if err := tmpl.t.Execute(w, d); err != nil {
 		log.Printf("could not write template: %v", err)
 	}
-	// log.Println(tmpl.t.DefinedTemplates())
 	return
 }

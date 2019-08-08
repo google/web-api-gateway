@@ -76,7 +76,6 @@ func main() {
 
 	log.Println("Reading config file...")
 
-	////////////// below three should be not working :/
 	// TODO: move to use gorilla mux or
 	http.Handle("/service/", createConfigHandler())
 	http.HandleFunc("/authToken/", authTokenPage)
@@ -298,10 +297,6 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("could not save session: %v", err)
 		return
 	}
-	// redirectURL := r.FormValue("redirect")
-	// if redirectURL == "" {
-	// 	redirectURL = "/"
-	// }
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -408,7 +403,6 @@ func removeServiceHandler(w http.ResponseWriter, r *http.Request) {
 	i, _, err := serviceFromRequest(serviceStr, c)
 	if err != nil {
 		log.Printf("Error finding service : %s", err)
-		// adding another error?
 		return
 	}
 	log.Println(i)
