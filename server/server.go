@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -37,14 +38,16 @@ import (
 
 	option "google.golang.org/api/option"
 	plus "google.golang.org/api/plus/v1"
+	uuid "github.com/gofrs/uuid"
 
 	"github.com/google/web-api-gateway/config"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/securecookie"
+	"github.com/gorilla/sessions"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
-// trying to addddd some feeeeee
 const version = "2.1.0"
 
 // TODO: switch to some other time interval?
@@ -67,24 +70,6 @@ var addr *string = flag.String(
 	":443",
 	"This is the address:port which the server listens to.",
 )
-
-// var listName *string = flag.String(
-// 	"list",
-// 	"/go/src/github.com/google/web-api-gateway/server/templates/list.html",
-// 	"This is list.html.",
-// )
-
-// var editServiceName *string = flag.String(
-// 	"editService",
-// 	"/go/src/github.com/google/web-api-gateway/server/templates/editService.html",
-// 	"This is editService.html.",
-// )
-
-// var editAccountName *string = flag.String(
-// 	"editAccount",
-// 	"/go/src/github.com/google/web-api-gateway/server/templates/editAccount.html",
-// 	"This is editAccount.html.",
-// )
 
 func main() {
 	flag.Parse()
@@ -126,6 +111,13 @@ func main() {
 
 //////////////////////////////////////////////////
 /////////////////////////////////////////////////
+const (
+	defaultSessionID     = "default"
+	profileSessionKey    = "profile"
+	oauthTokenSessionKey = "oauth_token"
+	oauthFlowRedirectKey = "redirect"
+)
+
 var (
 	baseTmpl        = parseTemplate("")
 	listTmpl        = parseTemplate(*templatesFolder + "list.html")
@@ -141,7 +133,11 @@ var oauthConf *oauth2.Config = &oauth2.Config{
 	Endpoint:     google.Endpoint,
 }
 
-var whites []*profile
+var cookieStore = createStore()
+
+var whitelist = map[string]bool{
+	"leesaxu@google.com": true,
+}
 
 type data struct {
 	Service *config.Service
@@ -151,6 +147,15 @@ type data struct {
 type profile struct {
 	ID, DisplayName, ImageURL string
 	Emails                    []*plus.PersonEmails
+}
+
+func init() {
+	// Gob encoding for gorilla/sessions
+	gob.Register(&oauth2.Token{})
+	gob.Register(&profile{})
+
+	//
+	// whitelist["leesaxu@google.com"] = true
 }
 
 func sineRegisterHandlers() *mux.Router {
@@ -189,6 +194,27 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 
 // loginHandler initiates an OAuth flow to the Google+ API
 func loginHandler(w http.ResponseWriter, r *http.Request) {
+	sessionID := uuid.Must(uuid.NewV4()).String()
+
+	oauthFlowSession, err := cookieStore.New(r, sessionID)
+	if err != nil {
+		// return appErrorf(err, "could not create oauth session: %v", err)
+		return
+	}
+	oauthFlowSession.Options.MaxAge = 10 * 60 // 10 minutes
+
+	// redirectURL, err := validateRedirectURL(r.FormValue("redirect"))
+	// if err != nil {
+	// 	return appErrorf(err, "invalid redirect URL: %v", err)
+	// }
+	// oauthFlowSession.Values[oauthFlowRedirectKey] = redirectURL
+
+	if err := oauthFlowSession.Save(r, w); err != nil {
+		fmt.Printf("could not save session: %v", err)
+		return
+	}
+
+	//////////////////////////////////
 	c, err := config.ReadConfig()
 	if err != nil {
 		log.Printf("Error reading config file: %s", err)
@@ -206,11 +232,24 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	// oauthConf.RedirectURL = redirectUrl
 	redirectUrl.Path = "/auth"
 	oauthConf.RedirectURL = redirectUrl.String()
-	url := oauthConf.AuthCodeURL("state", oauth2.ApprovalForce)
+	url := oauthConf.AuthCodeURL(sessionID, oauth2.ApprovalForce)
 	http.Redirect(w, r, url, http.StatusFound)
 }
 
 func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	// oauthFlowSession, err := cookieStore.Get(r, r.FormValue("state"))
+	// if err != nil {
+	// 	fmt.Printf("invalid state parameter. try logging in again.")
+	// 	return
+	// }
+
+	// redirectURL, ok := oauthFlowSession.Values[oauthFlowRedirectKey].(string)
+	// // Validate this callback request came from the app.
+	// if !ok {
+	// 	return appErrorf(err, "invalid state parameter. try logging in again.")
+	// }
+
+	///////////////////////////////
 	ctx := context.Background()
 	code := r.FormValue("code")
 	tok, err := oauthConf.Exchange(ctx, code)
@@ -218,19 +257,29 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Could not get auth token")
 		return
 	}
+	session, err := cookieStore.New(r, defaultSessionID)
+	if err != nil {
+		fmt.Printf("could not get default session: %v", err)
+	}
 	plusService, err := plus.NewService(ctx, option.WithTokenSource(oauthConf.TokenSource(ctx, tok)))
 	if err != nil {
 		log.Printf("Could not get plus service")
-		return
+		// return
 	}
 	person, err := plusService.People.Get("me").Do()
 	if err != nil {
 		log.Printf("Can't fetch Google profiles: %s", err)
 		return
 	}
-	profile := stripProfile(person)
-	log.Printf("id is: %s, name is: %s, emails are : %s", profile.ID, profile.DisplayName, profile.Emails)
-	whites = append(whites, profile)
+	session.Values[oauthTokenSessionKey] = tok
+	session.Values[profileSessionKey] = stripProfile(person)
+	if err := session.Save(r, w); err != nil {
+		fmt.Printf("could not save session: %v", err)
+		return
+	}
+
+  ////////////////////////////
+	// log.Printf("id is: %s, name is: %s, emails are : %s", profile.ID, profile.DisplayName, profile.Emails)
 	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
 }
 
@@ -326,7 +375,6 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func removeServiceHandler(w http.ResponseWriter, r *http.Request) {
-	// jian lve??
 	c, err := config.ReadConfig()
 	if err != nil {
 		log.Printf("Error reading config file: %s", err)
@@ -430,6 +478,47 @@ func stripProfile(p *plus.Person) *profile {
 		DisplayName: p.DisplayName,
 		ImageURL:    p.Image.Url,
 	}
+}
+
+func createStore() *sessions.CookieStore {
+	store := sessions.NewCookieStore(securecookie.GenerateRandomKey(32))
+	store.Options = &sessions.Options{
+		Secure:   true,
+		MaxAge:   86400 * 7, // TODO: change to another duration?
+		HttpOnly: true,
+	}
+	return store
+}
+
+type email struct {
+	emailType string `json:"type"`
+	emailValue string `json:"value"`
+}
+
+// profileFromSession retreives the Google+ profile from the default session.
+// Returns nil if the profile cannot be retreived (e.g. user is logged out).
+func profileFromSession(r *http.Request) *profile {
+	session, err := cookieStore.Get(r, defaultSessionID)
+	if err != nil {
+		return nil
+	}
+	tok, ok := session.Values[oauthTokenSessionKey].(*oauth2.Token)
+	if !ok || !tok.Valid() {
+		return nil
+	}
+	profile, ok := session.Values[profileSessionKey].(*profile)
+	if !ok {
+		return nil
+	}
+	j, _ := profile.Emails[0].MarshalJSON()
+	// s := string(j) //  {"type":"account","value":"leesaxu@google.com"}
+	data := email{}
+	json.Unmarshal(j, &data)
+	log.Println("here!!!!" + data.emailValue)
+	// if !whitelist[data.emailValue] {
+	// 	return nil
+	// }
+	return profile
 }
 
 // func userInput(value string, handler func(string) error) string {

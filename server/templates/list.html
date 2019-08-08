@@ -19,8 +19,8 @@
   <span>Add Service</span>
 </a>
 <div>
-    <ul>
-      {{range .Services}}
+  <ul>
+    {{range .Services}}
       {{$ServiceName := .ServiceName}}
       <li>
         <h4>{{.ServiceName}}</h4>
@@ -61,5 +61,5 @@
     {{else}} 
     <p> No services yet.</p>
     {{end}}
-     </ul>
+  </ul>
 </div>

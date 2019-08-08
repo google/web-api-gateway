@@ -25,12 +25,6 @@ import (
 	"net/http"
 )
 
-// var baseName *string = flag.String(
-// 	"base",
-// 	"/go/src/github.com/google/web-api-gateway/server/templates/base.html",
-// 	"This is base.html.",
-// )
-
 var templatesFolder *string = flag.String(
 	"templatesfolder",
 	"/go/src/github.com/google/web-api-gateway/server/templates/",
@@ -70,9 +64,9 @@ func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data in
 		// LoginURL:    "/login?redirect=" + r.URL.RequestURI(),
 		// LogoutURL:   "/logout?redirect=" + r.URL.RequestURI(),
 	}
-	if r.URL.RequestURI() != "/" {
-		d.Profile = whites[0]
-	}
+	// if r.URL.RequestURI() != "/" {
+		d.Profile = profileFromSession(r)
+	// }
 	// // log.Println(d)
 	// // if d.AuthEnabled {
 	// //   // Ignore any errors.

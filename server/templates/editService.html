@@ -13,7 +13,7 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 */}}
-<h3>Edit Service</h3>
+<h3>{{if .}}Edit{{else}}Add{{end}} Service</h3>
 
   <form action="/portal/saveservice" method="post">
     <input type="hidden" name="PreviousServiceName" value="{{.ServiceName}}" />
