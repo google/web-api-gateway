@@ -65,7 +65,7 @@ func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data in
 		// LogoutURL:   "/logout?redirect=" + r.URL.RequestURI(),
 	}
 	// if r.URL.RequestURI() != "/" {
-		d.Profile = profileFromSession(r)
+	d.Profile = profileFromSession(r)
 	// }
 	// // log.Println(d)
 	// // if d.AuthEnabled {

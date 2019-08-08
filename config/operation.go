@@ -72,7 +72,7 @@ type ServiceUpdater struct {
 	previousName                                    string
 	name, clientID, clientSecret, authURL, tokenURL *string
 	scopes                                          *[]string
-	accounts																				[]*Account
+	accounts                                        []*Account
 	save                                            func() error
 	c                                               *Config
 }
