@@ -162,6 +162,7 @@ func sineRegisterHandlers() *mux.Router {
 
 	r.Methods("GET").Path("/portal/addaccount/{service}").HandlerFunc(addAccountHandler)
 	r.Methods("GET").Path("/portal/editaccount/{service}/{account}").HandlerFunc(editAccountHandler)
+	r.Methods("GET").Path("/portal/removeaccount/{service}/{account}").HandlerFunc(removeAccountHandler)
 	r.Methods("GET").Path("/portal/retrievekey/{service}/{account}").HandlerFunc(retrieveKeyHandler)
 
 	r.Methods("POST").Path("/portal/saveservice").HandlerFunc(saveServiceHandler)
@@ -343,7 +344,7 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("PreviousServiceName")
 	u, err := config.NewServiceUpdater(name)
 	if err != nil {
-		log.Printf("Error getting updater: %s", err)
+		log.Printf("Error getting service updater: %s", err)
 		return
 	}
 	// e := userInput(r.FormValue("ServiceName"), u.Name) +
@@ -364,30 +365,34 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func saveAccountHandler(w http.ResponseWriter, r *http.Request) {
-	// sName := r.FormValue("ServiceName")
-	// aName := r.FormValue("PreviousAccountName")
-	// u, err := config.NewServiceUpdater(sName)
-	// if err != nil {
-	// 	log.Printf("Error getting updater: %s", err)
-	// 	return
-	// }
-
-	// c, err := config.ReadConfig()
-	// if err != nil {
-	// 	log.Printf("Error reading config file: %s", err)
-	// 	ErrorReadingConfig.ServeHTTP(w, r)
-	// 	return
-	// }
+	sName := r.FormValue("ServiceName")
+	previousAccount := r.FormValue("PreviousAccountName")
+	generateNewCreds := r.FormValue("GenerateNewCreds")
+	newCreds := false
+	if generateNewCreds == "on" || previousAccount == "" {
+		newCreds = true
+	}
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
 	// TODO: if err!=nil
-	// _, service, err := serviceFromRequest(sName, c)
-	// i, account, err := accountFromRequest(aName, service)
-	// log.Println(i)
-	// u.Account(i, account)
-	// if u.Commit() != nil {
-	// 	log.Printf("Error when saving")
-	// 	return
-	// }
-	// TODO: readback value for GenerateCreds, and call to another handler.
+	idx, _, err := serviceFromRequest(sName, c)
+	u, err := config.NewAccountUpdater(previousAccount, newCreds, idx)
+	if err != nil {
+		log.Printf("Error getting account updater: %s", err)
+		return
+	}
+
+	u.Name(r.FormValue("AccountName"))
+	u.ServiceURL(r.FormValue("ServiceURL"))
+
+	if u.Commit() != nil {
+		log.Printf("Error when saving")
+		return
+	}
 	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
 }
 
@@ -405,10 +410,35 @@ func removeServiceHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error finding service : %s", err)
 		return
 	}
-	log.Println(i)
 	config.SetServices(append(c.Services[:i], c.Services[i+1:]...))
 
 	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+}
+
+func removeAccountHandler(w http.ResponseWriter, r *http.Request) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		log.Printf("Error reading config file: %s", err)
+		ErrorReadingConfig.ServeHTTP(w, r)
+		return
+	}
+
+	serviceStr := mux.Vars(r)["service"]
+	sIdx, service, err := serviceFromRequest(serviceStr, c)
+	if err != nil {
+		log.Printf("Error finding service : %s", err)
+		return
+	}
+
+	accountStr := mux.Vars(r)["account"]
+	i, _, err := accountFromRequest(accountStr, service)
+	if err != nil {
+		log.Printf("Error finding account: %s", err)
+		return
+	}
+
+	config.SetAccounts(append(service.Accounts[:i], service.Accounts[i+1:]...), sIdx)
+	http.Redirect(w, r, "/portal/", http.StatusFound)
 }
 
 func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) {

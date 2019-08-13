@@ -17,11 +17,16 @@ limitations under the License.
 package config
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -52,6 +57,16 @@ func SetServices(services []*Service) error {
 	return save()
 }
 
+func SetAccounts(accounts []*Account, s int) error {
+	c, save, err := ReadWriteConfig()
+	if err != nil {
+		return err
+	}
+
+	c.Services[s].Accounts = accounts
+	return save()
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -72,7 +87,6 @@ type ServiceUpdater struct {
 	previousName                                    string
 	name, clientID, clientSecret, authURL, tokenURL *string
 	scopes                                          *[]string
-	accounts                                        []*Account
 	save                                            func() error
 	c                                               *Config
 }
@@ -114,16 +128,8 @@ func (u *ServiceUpdater) Commit() error {
 	if u.scopes != nil {
 		s.OauthServiceCreds.Scopes = *u.scopes
 	}
-	if u.accounts != nil {
-		s.Accounts = u.accounts
-	}
 
 	return u.save()
-}
-
-func (u *ServiceUpdater) Account(idx int, account *Account) error {
-	u.accounts[idx] = account
-	return nil
 }
 
 func (u *ServiceUpdater) Name(name string) error {
@@ -200,6 +206,101 @@ func (u *ServiceUpdater) Scopes(scopes string) error {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+func NewAccountUpdater(previousName string, newCreds bool, s int) (*AccountUpdater, error) {
+	c, save, err := ReadWriteConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return &AccountUpdater{
+		c:            c,
+		s:            s,
+		previousName: previousName,
+		newCreds:     newCreds,
+		save:         save,
+	}, nil
+}
+
+type AccountUpdater struct {
+	previousName     string
+	name, serviceURL *string
+	newCreds         bool
+	save             func() error
+	s                int
+	c                *Config
+}
+
+func (u *AccountUpdater) Commit() error {
+	var a *Account
+
+	if u.previousName == "" {
+		a = &Account{
+			ClientCreds: &ClientCreds{},
+		}
+		// wasSuccess := a.generateNewOauthAccountCreds(u.c.Services[u.s], u.c.Url)
+
+		u.c.Services[u.s].Accounts = append(u.c.Services[u.s].Accounts, a)
+	} else {
+		for _, other := range u.c.Services[u.s].Accounts {
+			if other.AccountName == u.previousName {
+				a = other
+			}
+		}
+	}
+	if a == nil {
+		return errors.New("Unable to find account, was its name changed while editing?")
+	}
+
+	if u.name != nil {
+		a.AccountName = *u.name
+	}
+
+	if u.serviceURL != nil {
+		a.ServiceURL = *u.serviceURL
+	}
+
+	if u.newCreds {
+		a.ClientCreds.createClientCreds()
+		fmt.Printf("Generating new access credentials, privkey: %s, protocol: %s",
+			a.ClientCreds.PrivateKey, a.ClientCreds.Protocol)
+	}
+
+	fmt.Printf("saving, name: %s, serviceURL: %s", a.AccountName, a.ServiceURL)
+	return u.save()
+}
+
+func (u *AccountUpdater) Name(name string) error {
+	// if form perform validation, dont think still need this
+	err := verifyName(name)
+	if err != nil {
+		return err
+	}
+
+	if name != u.previousName {
+		for _, other := range u.c.Services[u.s].Accounts {
+			if name == other.AccountName {
+				return errors.New("That account name is already in use.  Choose another.")
+			}
+		}
+	}
+
+	u.name = &name
+	return nil
+}
+
+func (u *AccountUpdater) ServiceURL(serviceURL string) error {
+	verified, err := verifyUrl(serviceURL)
+	if err != nil {
+		return err
+	}
+
+	u.serviceURL = &verified
+	return nil
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 func CreateAccountKey(c *Config, s *Service, a *Account) (string, error) {
 	j := struct {
 		WebGatewayUrl string
@@ -220,6 +321,95 @@ func CreateAccountKey(c *Config, s *Service, a *Account) (string, error) {
 
 	return fmt.Sprintf("KEYBEGIN_%s/%s_%s_KEYEND", s.ServiceName, a.AccountName, inner), nil
 }
+
+func (creds *ClientCreds) createClientCreds() {
+	fmt.Println("Generating new secret for client credentials.")
+	for i := 0; i < 10; i++ {
+
+		privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			fmt.Println("error generating key: ", err)
+			fmt.Println("Trying again")
+			continue
+		}
+
+		bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+		if err != nil {
+			fmt.Println("error marshling key: ", err)
+			fmt.Println("Trying again")
+			continue
+		}
+
+		creds.Protocol = "ECDSA_SHA256_PKCS8_V1"
+		creds.PrivateKey = base64.StdEncoding.EncodeToString(bytes)
+		return
+	}
+
+	fmt.Println("Too many failures trying to create client credentials, exiting without saving.")
+	os.Exit(1)
+
+}
+
+// func (a *Account) generateNewOauthAccountCreds(s *Service, url string) bool {
+// 	var endpoint = oauth2.Endpoint{
+// 		AuthURL:  s.OauthServiceCreds.AuthURL,
+// 		TokenURL: s.OauthServiceCreds.TokenURL,
+// 	}
+
+// 	redirectUrl, err := url.Parse(url)
+// 	if err != nil {
+// 		fmt.Println("Web-Api-Gatway url setting is invalid, can't continue.")
+// 		return false
+// 	}
+// 	redirectUrl.Path = "/authToken/"
+
+// 	oauthConf := &oauth2.Config{
+// 		ClientID:     s.OauthServiceCreds.ClientID,
+// 		ClientSecret: s.OauthServiceCreds.ClientSecret,
+// 		Scopes:       s.OauthServiceCreds.Scopes,
+// 		Endpoint:     endpoint,
+// 		RedirectURL:  redirectUrl.String(),
+// 	}
+
+// 	for {
+// 		state, err := generateRandomString()
+// 		if err != nil {
+// 			fmt.Println("Problem with random number generation.  Can't continue.")
+// 			return false
+// 		}
+
+// 		authUrl := oauthConf.AuthCodeURL(state)
+
+// 		fmt.Println("Please go to this url and authorize the application:")
+// 		fmt.Println(authUrl)
+// 		fmt.Printf("Enter the code here> ")
+
+// 		jsonAuthCode, err := base64.StdEncoding.DecodeString(encodedAuthCode)
+// 		if err != nil {
+// 			fmt.Println("Bad decode")
+// 			continue
+// 		}
+// 		j := struct {
+// 			Token string
+// 			State string
+// 		}{}
+// 		json.Unmarshal(jsonAuthCode, &j)
+
+// 		if j.State != state {
+// 			fmt.Printf("Bad state. Expected %s, got %s\n", state, j.State)
+// 			continue
+// 		}
+
+// 		token, err := oauthConf.Exchange(context.Background(), j.Token)
+// 		if err == nil {
+// 			a.OauthAccountCreds = token
+// 			fmt.Println("Successfully authorized.")
+// 			return true
+// 		}
+// 		fmt.Println(err)
+// 		fmt.Println("Please try again.")
+// 	}
+// }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////

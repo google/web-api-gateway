@@ -22,17 +22,20 @@
     <div class="form-group">
       <label for="AccountName">Account Name</label>
       <input class="form-control" type="text" name="AccountName" 
-       value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
+       value="{{if .Account}}{{.Account.AccountName}}{{end}}" required 
+       pattern="^[-a-z0-9]+$" />
     </div>
     <div class="form-group">
       <label for="ServiceURL">Service URL</label>
       <input class="form-control" type="url" name="ServiceURL" 
-      value="{{if .Account}}{{.Account.ServiceURL}}{{end}}" />
+      value="{{if .Account}}{{.Account.ServiceURL}}{{end}}" required />
     </div>
+    {{if .Account}}
     <div class="form-group">
-      <label for="GenerateCreds">Generate New Access Credentials</label>
-      <input type="checkbox" name="GenerateCreds" />
+      <label for="GenerateNewCreds">Generate New Access Credentials</label>
+      <input type="checkbox" name="GenerateNewCreds" />
     </div>
+    {{end}}
     <div class="form-group">
       <button type="submit">Save</button>
     </div>

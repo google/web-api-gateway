@@ -19,27 +19,33 @@
     <input type="hidden" name="PreviousServiceName" value="{{.ServiceName}}" />
     <div class="form-group">
       <label for="ServiceName">Service Name:</label>
-      <input class="form-control" type="text" name="ServiceName" value="{{.ServiceName}}" />
+      <input class="form-control" type="text" name="ServiceName" 
+       value="{{.ServiceName}}" required pattern="^[-a-z0-9]+$" />
     </div>
     <div class="form-group">
       <label for="ClientID">Client ID</label>
-      <input class="form-control" type="text" name="ClientID" value="{{.OauthServiceCreds.ClientID}}" />
+      <input class="form-control" type="text" name="ClientID" 
+       value="{{.OauthServiceCreds.ClientID}}" required />
     </div>
     <div class="form-group">
       <label for="ClientSecret">Client Secret</label>
-      <input class="form-control" type="password" name="ClientSecret" value="" />
+      <input class="form-control" type="password" name="ClientSecret" value="" 
+       {{if .}}{{else}}required{{end}} />
     </div>
     <div class="form-group">
       <label for="AuthURL">Auth URL</label>
-      <input class="form-control" type="url" name="AuthURL" value="{{.OauthServiceCreds.AuthURL}}" />
+      <input class="form-control" type="url" name="AuthURL" 
+       value="{{.OauthServiceCreds.AuthURL}}" required />
     </div>
     <div class="form-group">
       <label for="TokenURL">Token URL</label>
-      <input class="form-control" type="url" name="TokenURL" value="{{.OauthServiceCreds.TokenURL}}" />
+      <input class="form-control" type="url" name="TokenURL" 
+      value="{{.OauthServiceCreds.TokenURL}}" required />
     </div>
     <div class="form-group">
       <label for="Scopes">Scopes</label>
-      <input class="form-control" type="text" name="Scopes" value="{{range .OauthServiceCreds.Scopes}}{{.}},{{end}}" />
+      <input class="form-control" type="text" name="Scopes" 
+       value="{{range .OauthServiceCreds.Scopes}}{{.}},{{end}}" required />
     </div>
     <div class="form-group">
       <button type="submit">Save</button>
