@@ -13,12 +13,15 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 */}}
-<h3>{{if .Account}}Edit{{else}}Add{{end}} Account</h3>
+<h3>{{if and .Account .Url}}Reauthorize{{else if .Url}}Add{{else}}Edit{{end}} Account</h3>
 
   <form action="/portal/saveaccount" method="post">
     <input type="hidden" name="ServiceName" value="{{.Service.ServiceName}}" />
     <input type="hidden" name="PreviousAccountName" 
     value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
+    <input type="hidden" name="State" value="{{.State}}" />
+    {{if and .Account .Url}}
+    {{else}}
     <div class="form-group">
       <label for="AccountName">Account Name</label>
       <input class="form-control" type="text" name="AccountName" 
@@ -30,10 +33,21 @@
       <input class="form-control" type="url" name="ServiceURL" 
       value="{{if .Account}}{{.Account.ServiceURL}}{{end}}" required />
     </div>
-    {{if .Account}}
+      {{if .Account}}
+      <div class="form-group">
+        <label for="GenerateNewCreds">Generate New Access Credentials</label>
+        <input type="checkbox" name="GenerateNewCreds" />
+      </div>
+      {{end}}
+    {{end}}
+    {{if .Url}}
     <div class="form-group">
-      <label for="GenerateNewCreds">Generate New Access Credentials</label>
-      <input type="checkbox" name="GenerateNewCreds" />
+      <label> Please go to this url and authorize the application:</label>
+      <a href="{{.Url}}" target="_blank" >Authenticate URL</a>
+    </div>
+    <div class="form-group">
+      <label for="Code">Enter the code here</label>
+      <input class="form-control" type="text" name="Code" required />
     </div>
     {{end}}
     <div class="form-group">

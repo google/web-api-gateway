@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"html/template"
 	"io/ioutil"
-	"log"
 	"net/http"
 )
 
@@ -53,7 +52,7 @@ type appTemplate struct {
 
 // Execute writes the template using the provided data, adding login and user
 // information to the base template.
-func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data interface{}) {
+func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data interface{}) *appError {
 	d := struct {
 		Data    interface{}
 		Profile *profile
@@ -62,7 +61,7 @@ func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data in
 	}
 	d.Profile = profileFromSession(r)
 	if err := tmpl.t.Execute(w, d); err != nil {
-		log.Printf("could not write template: %v", err)
+		return appErrorf(err, "could not write template: %v", err)
 	}
-	return
+	return nil
 }

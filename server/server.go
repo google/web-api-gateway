@@ -137,6 +137,8 @@ var cookieStore = createStore()
 type data struct {
 	Service *config.Service
 	Account *config.Account
+	Url     string
+	State   string
 }
 
 type profile struct {
@@ -153,20 +155,21 @@ func init() {
 func sineRegisterHandlers() *mux.Router {
 	r := mux.NewRouter()
 
-	r.Methods("GET").Path("/").HandlerFunc(baseHandler)
+	r.Methods("GET").Path("/").Handler(appHandler(baseHandler))
 
-	r.Methods("GET").Path("/portal/").HandlerFunc(listHandler)
-	r.Methods("GET").Path("/portal/addservice").HandlerFunc(addServiceHandler)
-	r.Methods("GET").Path("/portal/editservice/{service}").HandlerFunc(editServiceHandler)
-	r.Methods("GET").Path("/portal/removeservice/{service}").HandlerFunc(removeServiceHandler)
+	r.Methods("GET").Path("/portal/").Handler(appHandler(listHandler))
+	r.Methods("GET").Path("/portal/addservice").Handler(appHandler(addServiceHandler))
+	r.Methods("GET").Path("/portal/editservice/{service}").Handler(appHandler(editServiceHandler))
+	r.Methods("GET").Path("/portal/removeservice/{service}").Handler(appHandler(removeServiceHandler))
 
-	r.Methods("GET").Path("/portal/addaccount/{service}").HandlerFunc(addAccountHandler)
-	r.Methods("GET").Path("/portal/editaccount/{service}/{account}").HandlerFunc(editAccountHandler)
-	r.Methods("GET").Path("/portal/removeaccount/{service}/{account}").HandlerFunc(removeAccountHandler)
-	r.Methods("GET").Path("/portal/retrievekey/{service}/{account}").HandlerFunc(retrieveKeyHandler)
+	r.Methods("GET").Path("/portal/addaccount/{service}").Handler(appHandler(addAccountHandler))
+	r.Methods("GET").Path("/portal/editaccount/{service}/{account}").Handler(appHandler(editAccountHandler))
+	r.Methods("GET").Path("/portal/removeaccount/{service}/{account}").Handler(appHandler(removeAccountHandler))
+	r.Methods("GET").Path("/portal/retrievekey/{service}/{account}").Handler(appHandler(retrieveKeyHandler))
+	r.Methods("GET").Path("/portal/reauthorizeaccount/{service}/{account}").Handler(appHandler(reauthorizeAccountHandler))
 
-	r.Methods("POST").Path("/portal/saveservice").HandlerFunc(saveServiceHandler)
-	r.Methods("POST").Path("/portal/saveaccount").HandlerFunc(saveAccountHandler)
+	r.Methods("POST").Path("/portal/saveservice").Handler(appHandler(saveServiceHandler))
+	r.Methods("POST").Path("/portal/saveaccount").Handler(appHandler(saveAccountHandler))
 
 	//////////////////////////////
 	// modifying already exisiting handlers
@@ -174,26 +177,20 @@ func sineRegisterHandlers() *mux.Router {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
 	})
 
-	// auth related handlers
-	r.Methods("GET").Path("/login").HandlerFunc(loginHandler)
-	r.Methods("GET").Path("/auth").HandlerFunc(oauthCallbackHandler)
-	r.Methods("POST").Path("/logout").HandlerFunc(logoutHandler)
+	r.Methods("GET").Path("/login").Handler(appHandler(loginHandler))
+	r.Methods("GET").Path("/auth").Handler(appHandler(oauthCallbackHandler))
+	r.Methods("POST").Path("/logout").Handler(appHandler(logoutHandler))
 
 	return r
 }
 
-func baseHandler(w http.ResponseWriter, r *http.Request) {
-	baseTmpl.Execute(w, r, nil)
-}
-
 // loginHandler initiates an OAuth flow to the Google+ API
-func loginHandler(w http.ResponseWriter, r *http.Request) {
+func loginHandler(w http.ResponseWriter, r *http.Request) *appError {
 	sessionID := uuid.Must(uuid.NewV4()).String()
 
 	oauthFlowSession, err := cookieStore.New(r, sessionID)
 	if err != nil {
-		// return appErrorf(err, "could not create oauth session: %v", err)
-		return
+		return appErrorf(err, "could not create oauth session: %v", err)
 	}
 	oauthFlowSession.Options.MaxAge = 10 * 60 // 10 minutes
 
@@ -204,38 +201,30 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	// oauthFlowSession.Values[oauthFlowRedirectKey] = redirectURL
 
 	if err := oauthFlowSession.Save(r, w); err != nil {
-		fmt.Printf("could not save session: %v", err)
-		return
+		return appErrorf(err, "could not save session: %v", err)
 	}
 
-	//////////////////////////////////
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
 	redirectUrl, err := url.Parse(c.Url)
 	if err != nil {
-		log.Printf("Can't parse URL.")
-		return
+		return appErrorf(err, "could not parse URL: %v", err)
 	}
 
-	// installed app oauth redirect_uri, this can't satisfy requirements
-	// redirectUrl := "https://127.0.0.1/auth"
-	// oauthConf.RedirectURL = redirectUrl
 	redirectUrl.Path = "/auth"
 	oauthConf.RedirectURL = redirectUrl.String()
 	url := oauthConf.AuthCodeURL(sessionID, oauth2.ApprovalForce)
 	http.Redirect(w, r, url, http.StatusFound)
+	return nil
 }
 
-func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
+func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) *appError {
 	// Validate state parameter using session
 	_, err := cookieStore.Get(r, r.FormValue("state"))
 	if err != nil {
-		fmt.Printf("invalid state parameter. try logging in again.")
-		return
+		return appErrorf(err, "invalid state parameter. try logging in again.")
 	}
 
 	// redirectURL, ok := oauthFlowSession.Values[oauthFlowRedirectKey].(string)
@@ -249,254 +238,281 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	code := r.FormValue("code")
 	tok, err := oauthConf.Exchange(ctx, code)
 	if err != nil {
-		log.Printf("Could not get auth token")
-		return
+		return appErrorf(err, "could not get auth token: %v", err)
 	}
 	session, err := cookieStore.New(r, defaultSessionID)
 	if err != nil {
-		fmt.Printf("could not get default session: %v", err)
+		// TODO: point 8
+		appErrorf(err, "could not get default session: %v", err)
+		// return appErrorf(err, "could not get default session: %v", err)
 	}
 	plusService, err := plus.NewService(ctx, option.WithTokenSource(oauthConf.TokenSource(ctx, tok)))
 	if err != nil {
-		log.Printf("Could not get plus service")
-		// return
+		return appErrorf(err, "could not get plus service: %v", err)
 	}
 	person, err := plusService.People.Get("me").Do()
 	if err != nil {
-		log.Printf("Can't fetch Google profiles: %s", err)
-		return
+		return appErrorf(err, "could not fetch Google profiles: %v", err)
 	}
 	profile := stripProfile(person)
 
-	// disable for now, re-enable later :D
-	// c, err := config.ReadConfig()
-	// if err != nil {
-	// 	log.Printf("Error reading config file: %s", err)
-	// 	ErrorReadingConfig.ServeHTTP(w, r)
-	// 	return
-	// }
-	// emailValue := profile.Emails[0].Value
-	// if c.Users[emailValue] {
-	session.Values[oauthTokenSessionKey] = tok
-	session.Values[profileSessionKey] = profile
-	if err := session.Save(r, w); err != nil {
-		fmt.Printf("could not save session: %v", err)
-		return
+	c, err := config.ReadConfig()
+	if err != nil {
+		return appErrorf(err, "could not read config file: %v", err)
 	}
-	// }
 
-	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+	// emmm [0]?
+	log.Println(profile.Emails)
+	emailValue := profile.Emails[0].Value
+	if c.Users[emailValue] {
+		session.Values[oauthTokenSessionKey] = tok
+		session.Values[profileSessionKey] = profile
+		if err := session.Save(r, w); err != nil {
+			return appErrorf(err, "could not save session: %v", err)
+		}
+	}
+
+	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
 }
 
-func logoutHandler(w http.ResponseWriter, r *http.Request) {
+func logoutHandler(w http.ResponseWriter, r *http.Request) *appError {
 	session, err := cookieStore.New(r, defaultSessionID)
 	if err != nil {
-		fmt.Printf("could not get default session: %v", err)
+		return appErrorf(err, "could not get default session: %v", err)
 	}
 	session.Options.MaxAge = -1 // Clear session.
 	if err := session.Save(r, w); err != nil {
-		fmt.Printf("could not save session: %v", err)
-		return
+		return appErrorf(err, "could not save session: %v", err)
 	}
 	http.Redirect(w, r, "/", http.StatusFound)
+	return nil
 }
 
-func listHandler(w http.ResponseWriter, r *http.Request) {
+func baseHandler(w http.ResponseWriter, r *http.Request) *appError {
+	return baseTmpl.Execute(w, r, nil)
+}
+
+func listHandler(w http.ResponseWriter, r *http.Request) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
-	listTmpl.Execute(w, r, *c)
+	return listTmpl.Execute(w, r, *c)
 }
 
-func editServiceHandler(w http.ResponseWriter, r *http.Request) {
-	editHandler(w, r, editServiceTmpl)
+func editServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
+	return editHandler(w, r, editServiceTmpl)
 }
 
-func editAccountHandler(w http.ResponseWriter, r *http.Request) {
-	editHandler(w, r, editAccountTmpl)
+func editAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
+	return editHandler(w, r, editAccountTmpl)
 }
 
-func addServiceHandler(w http.ResponseWriter, r *http.Request) {
-	editServiceTmpl.Execute(w, r, nil)
+func addServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
+	return editServiceTmpl.Execute(w, r, nil)
 }
 
-func addAccountHandler(w http.ResponseWriter, r *http.Request) {
+func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
-
 	serviceStr := mux.Vars(r)["service"]
 	_, service, err := serviceFromRequest(serviceStr, c)
 	if err != nil {
-		log.Printf("Error finding service: %s", err)
-		return
+		return appErrorf(err, "could not find service: %v", err)
 	}
-	editAccountTmpl.Execute(w, r, data{service, nil})
+	authUrl, state, err := config.GenerateAuthUrl(c.Url, service)
+	if err != nil {
+		return appErrorf(err, "could not generate auth URL: %v", err)
+	}
+
+	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl, state})
 }
 
-func saveServiceHandler(w http.ResponseWriter, r *http.Request) {
+func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	name := r.FormValue("PreviousServiceName")
 	u, err := config.NewServiceUpdater(name)
 	if err != nil {
-		log.Printf("Error getting service updater: %s", err)
-		return
+		return appErrorf(err, "could not get service updater: %v", err)
 	}
-	// e := userInput(r.FormValue("ServiceName"), u.Name) +
-	// userInput(r.FormValue("ClientID"), u.ClientID)
-	// TODO: add validations?????
-	// TODO: **** rename would break exsiting connections, so maybe pop-up?
-	u.Name(r.FormValue("ServiceName"))
-	u.ClientID(r.FormValue("ClientID"))
-	u.ClientSecret(r.FormValue("ClientSecret"))
-	u.AuthURL(r.FormValue("AuthURL"))
-	u.TokenURL(r.FormValue("TokenURL"))
-	u.Scopes(r.FormValue("Scopes"))
-	if u.Commit() != nil {
-		log.Printf("Error when saving")
-		return
+	// TODO: ***point 5 rename would break exsiting connections, so maybe pop-up?
+	// 
+	if err := u.Name(r.FormValue("ServiceName")); err != nil ||
+		u.ClientID(r.FormValue("ClientID")) != nil ||
+		u.ClientSecret(r.FormValue("ClientSecret")) != nil ||
+		u.AuthURL(r.FormValue("AuthURL")) != nil ||
+		u.TokenURL(r.FormValue("TokenURL")) != nil ||
+		u.Scopes(r.FormValue("Scopes")) != nil ||
+		u.Commit() != nil {
+		return appErrorf(err, "could not save changes: %v", err)
 	}
-	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
 }
 
-func saveAccountHandler(w http.ResponseWriter, r *http.Request) {
+func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
+	var decode string
 	sName := r.FormValue("ServiceName")
 	previousAccount := r.FormValue("PreviousAccountName")
+	state := r.FormValue("State")
+	code := r.FormValue("Code")
+	if code != "" {
+		// do we need error
+		decode, _ := config.VerifyState(code, state)
+		if decode == "" {
+			if previousAccount == "" {
+				http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
+				return nil
+			}
+			http.Redirect(w, r,
+				fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
+				http.StatusFound)
+			return nil
+		}
+	}
 	generateNewCreds := r.FormValue("GenerateNewCreds")
 	newCreds := false
 	if generateNewCreds == "on" || previousAccount == "" {
 		newCreds = true
 	}
+
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
-	// TODO: if err!=nil
 	idx, _, err := serviceFromRequest(sName, c)
+	if err != nil {
+		return appErrorf(err, "could not find service: %v", err)
+	}
 	u, err := config.NewAccountUpdater(previousAccount, newCreds, idx)
 	if err != nil {
-		log.Printf("Error getting account updater: %s", err)
-		return
+		return appErrorf(err, "could not get account updater: %v", err)
 	}
 
 	u.Name(r.FormValue("AccountName"))
 	u.ServiceURL(r.FormValue("ServiceURL"))
-
-	if u.Commit() != nil {
-		log.Printf("Error when saving")
-		return
+	u.OauthCreds(decode)
+	if err := u.Commit(); err != nil {
+		return appErrorf(err, "could not save changes: %v", err)
 	}
-	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
 }
 
-func removeServiceHandler(w http.ResponseWriter, r *http.Request) {
+func removeServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
 
 	serviceStr := mux.Vars(r)["service"]
 	i, _, err := serviceFromRequest(serviceStr, c)
 	if err != nil {
-		log.Printf("Error finding service : %s", err)
-		return
+		return appErrorf(err, "could not find service: %v", err)
 	}
-	config.SetServices(append(c.Services[:i], c.Services[i+1:]...))
+	if config.SetServices(append(c.Services[:i], c.Services[i+1:]...)) != nil {
+		return appErrorf(err, "could not save services: %v", err)
+	}
 
-	http.Redirect(w, r, fmt.Sprintf("/portal/"), http.StatusFound)
+	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
 }
 
-func removeAccountHandler(w http.ResponseWriter, r *http.Request) {
+func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
 
 	serviceStr := mux.Vars(r)["service"]
 	sIdx, service, err := serviceFromRequest(serviceStr, c)
 	if err != nil {
-		log.Printf("Error finding service : %s", err)
-		return
+		return appErrorf(err, "could not find service: %v", err)
 	}
 
 	accountStr := mux.Vars(r)["account"]
 	i, _, err := accountFromRequest(accountStr, service)
 	if err != nil {
-		log.Printf("Error finding account: %s", err)
-		return
+		return appErrorf(err, "could not find account: %v", err)
 	}
 
-	config.SetAccounts(append(service.Accounts[:i], service.Accounts[i+1:]...), sIdx)
+	if config.SetAccounts(append(service.Accounts[:i], service.Accounts[i+1:]...), sIdx) != nil {
+		return appErrorf(err, "could not save accounts", err)
+	}
 	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
 }
 
-func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) {
+func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
 
 	serviceStr := mux.Vars(r)["service"]
 	_, service, err := serviceFromRequest(serviceStr, c)
 	if err != nil {
-		log.Printf("Error finding service: %s", err)
-		// TODO:
-		// adding another error?
-		return
+		return appErrorf(err, "could not find service: %v", err)
 	}
 	if tmpl == editServiceTmpl {
-		tmpl.Execute(w, r, service)
+		return tmpl.Execute(w, r, service)
 	} else {
 		accountStr := mux.Vars(r)["account"]
 		_, account, err := accountFromRequest(accountStr, service)
 		if err != nil {
-			log.Printf("Error finding account: %s", err)
-			return
+			return appErrorf(err, "could not find account: %v", err)
 		}
-		tmpl.Execute(w, r, data{service, account})
+		return tmpl.Execute(w, r, data{service, account, "", ""})
 	}
 }
 
-func retrieveKeyHandler(w http.ResponseWriter, r *http.Request) {
+func retrieveKeyHandler(w http.ResponseWriter, r *http.Request) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %s", err)
-		ErrorReadingConfig.ServeHTTP(w, r)
-		return
+		return appErrorf(err, "could not read config file: %v", err)
 	}
 
 	serviceStr := mux.Vars(r)["service"]
 	_, service, err := serviceFromRequest(serviceStr, c)
 	if err != nil {
-		log.Printf("Error finding service: %s", err)
-		return
+		return appErrorf(err, "could not find service: %v", err)
 	}
 	accountStr := mux.Vars(r)["account"]
 	_, account, err := accountFromRequest(accountStr, service)
 	if err != nil {
-		log.Printf("Error finding account: %s", err)
-		return
+		return appErrorf(err, "could not find account: %v", err)
 	}
 	key, err := config.CreateAccountKey(c, service, account)
 	if err != nil {
-		fmt.Println("Error creating account key:")
-		fmt.Println(err)
-		return
+		return appErrorf(err, "could not create account key: %v", err)
 	}
-	keyTmpl.Execute(w, r, key)
+	return keyTmpl.Execute(w, r, key)
+}
+
+func reauthorizeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
+	c, err := config.ReadConfig()
+	if err != nil {
+		return appErrorf(err, "could not read config file: %v", err)
+	}
+
+	serviceStr := mux.Vars(r)["service"]
+	_, service, err := serviceFromRequest(serviceStr, c)
+	if err != nil {
+		return appErrorf(err, "could not find service: %v", err)
+	}
+	accountStr := mux.Vars(r)["account"]
+	_, account, err := accountFromRequest(accountStr, service)
+	if err != nil {
+		return appErrorf(err, "could not find account: %v", err)
+	}
+	authUrl, state, err := config.GenerateAuthUrl(c.Url, service)
+	if err != nil {
+		return appErrorf(err, "could not generate auth URL: %v", err)
+	}
+
+	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, state})
 }
 
 func serviceFromRequest(serviceStr string, c *config.Config) (int, *config.Service, error) {
@@ -520,7 +536,6 @@ func accountFromRequest(accountStr string, s *config.Service) (int, *config.Acco
 func stripProfile(p *plus.Person) *profile {
 	return &profile{
 		Emails:      p.Emails,
-		ID:          p.Id,
 		DisplayName: p.DisplayName,
 		ImageURL:    p.Image.Url,
 	}
@@ -554,19 +569,30 @@ func profileFromSession(r *http.Request) *profile {
 	return profile
 }
 
-// func userInput(value string, handler func(string) error) string {
-// 		err := handler(value)
-// 		if err != nil {
-// 			return err.Error
-// 		}
-// 		return nil
-// }
+type appHandler func(http.ResponseWriter, *http.Request) *appError
 
-// type appHandler func(http.ResponseWriter, *http.Request)
+type appError struct {
+	Error   error
+	Message string
+	Code    int
+}
 
-// func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-// 	fn(w, r)
-// }
+func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if e := fn(w, r); e != nil { // e is *appError, not os.Error.
+		log.Printf("Handler error: status code: %d, message: %s, underlying err: %#v",
+			e.Code, e.Message, e.Error)
+
+		http.Error(w, e.Message, e.Code)
+	}
+}
+
+func appErrorf(err error, format string, v ...interface{}) *appError {
+	return &appError{
+		Error:   err,
+		Message: fmt.Sprintf(format, v...),
+		Code:    500,
+	}
+}
 
 ////////////////////////////////////////////////
 ///////////////////////////////////////////////

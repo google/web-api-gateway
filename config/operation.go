@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -29,6 +30,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"golang.org/x/oauth2"
 )
 
 func SetEndpointUrl(rawText string) error {
@@ -224,6 +227,7 @@ func NewAccountUpdater(previousName string, newCreds bool, s int) (*AccountUpdat
 type AccountUpdater struct {
 	previousName     string
 	name, serviceURL *string
+	oauthCreds       *oauth2.Token
 	newCreds         bool
 	save             func() error
 	s                int
@@ -237,8 +241,6 @@ func (u *AccountUpdater) Commit() error {
 		a = &Account{
 			ClientCreds: &ClientCreds{},
 		}
-		// wasSuccess := a.generateNewOauthAccountCreds(u.c.Services[u.s], u.c.Url)
-
 		u.c.Services[u.s].Accounts = append(u.c.Services[u.s].Accounts, a)
 	} else {
 		for _, other := range u.c.Services[u.s].Accounts {
@@ -260,17 +262,19 @@ func (u *AccountUpdater) Commit() error {
 	}
 
 	if u.newCreds {
-		a.ClientCreds.createClientCreds()
-		fmt.Printf("Generating new access credentials, privkey: %s, protocol: %s",
+		a.ClientCreds.generateClientCreds()
+		fmt.Printf("Generating new access credentials, privkey: %s, protocol: %s \n",
 			a.ClientCreds.PrivateKey, a.ClientCreds.Protocol)
 	}
 
-	fmt.Printf("saving, name: %s, serviceURL: %s", a.AccountName, a.ServiceURL)
+	if u.oauthCreds != nil {
+		a.OauthAccountCreds = u.oauthCreds
+	}
 	return u.save()
 }
 
 func (u *AccountUpdater) Name(name string) error {
-	// if form perform validation, dont think still need this
+	// verifyName() not required for UI path
 	err := verifyName(name)
 	if err != nil {
 		return err
@@ -298,6 +302,17 @@ func (u *AccountUpdater) ServiceURL(serviceURL string) error {
 	return nil
 }
 
+func (u *AccountUpdater) OauthCreds(code string) error {
+	oauthConf := getOauthConfig(u.c.Url, u.c.Services[u.s])
+	token, err := oauthConf.Exchange(context.Background(), code)
+	if err != nil {
+		return err
+	}
+
+	u.oauthCreds = token
+	return nil
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -322,94 +337,30 @@ func CreateAccountKey(c *Config, s *Service, a *Account) (string, error) {
 	return fmt.Sprintf("KEYBEGIN_%s/%s_%s_KEYEND", s.ServiceName, a.AccountName, inner), nil
 }
 
-func (creds *ClientCreds) createClientCreds() {
-	fmt.Println("Generating new secret for client credentials.")
-	for i := 0; i < 10; i++ {
-
-		privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			fmt.Println("error generating key: ", err)
-			fmt.Println("Trying again")
-			continue
-		}
-
-		bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
-		if err != nil {
-			fmt.Println("error marshling key: ", err)
-			fmt.Println("Trying again")
-			continue
-		}
-
-		creds.Protocol = "ECDSA_SHA256_PKCS8_V1"
-		creds.PrivateKey = base64.StdEncoding.EncodeToString(bytes)
-		return
+func GenerateAuthUrl(url string, s *Service) (string, string, error) {
+	oauthConf := getOauthConfig(url, s)
+	state, err := generateRandomString()
+	if err != nil {
+		return "", "", fmt.Errorf("Problem with random number generation.  Can't continue.\n")
 	}
-
-	fmt.Println("Too many failures trying to create client credentials, exiting without saving.")
-	os.Exit(1)
-
+	return oauthConf.AuthCodeURL(state), state, nil
 }
 
-// func (a *Account) generateNewOauthAccountCreds(s *Service, url string) bool {
-// 	var endpoint = oauth2.Endpoint{
-// 		AuthURL:  s.OauthServiceCreds.AuthURL,
-// 		TokenURL: s.OauthServiceCreds.TokenURL,
-// 	}
-
-// 	redirectUrl, err := url.Parse(url)
-// 	if err != nil {
-// 		fmt.Println("Web-Api-Gatway url setting is invalid, can't continue.")
-// 		return false
-// 	}
-// 	redirectUrl.Path = "/authToken/"
-
-// 	oauthConf := &oauth2.Config{
-// 		ClientID:     s.OauthServiceCreds.ClientID,
-// 		ClientSecret: s.OauthServiceCreds.ClientSecret,
-// 		Scopes:       s.OauthServiceCreds.Scopes,
-// 		Endpoint:     endpoint,
-// 		RedirectURL:  redirectUrl.String(),
-// 	}
-
-// 	for {
-// 		state, err := generateRandomString()
-// 		if err != nil {
-// 			fmt.Println("Problem with random number generation.  Can't continue.")
-// 			return false
-// 		}
-
-// 		authUrl := oauthConf.AuthCodeURL(state)
-
-// 		fmt.Println("Please go to this url and authorize the application:")
-// 		fmt.Println(authUrl)
-// 		fmt.Printf("Enter the code here> ")
-
-// 		jsonAuthCode, err := base64.StdEncoding.DecodeString(encodedAuthCode)
-// 		if err != nil {
-// 			fmt.Println("Bad decode")
-// 			continue
-// 		}
-// 		j := struct {
-// 			Token string
-// 			State string
-// 		}{}
-// 		json.Unmarshal(jsonAuthCode, &j)
-
-// 		if j.State != state {
-// 			fmt.Printf("Bad state. Expected %s, got %s\n", state, j.State)
-// 			continue
-// 		}
-
-// 		token, err := oauthConf.Exchange(context.Background(), j.Token)
-// 		if err == nil {
-// 			a.OauthAccountCreds = token
-// 			fmt.Println("Successfully authorized.")
-// 			return true
-// 		}
-// 		fmt.Println(err)
-// 		fmt.Println("Please try again.")
-// 	}
-// }
+func VerifyState(code string, state string) (string, error) {
+	jsonAuthCode, err := base64.StdEncoding.DecodeString(code)
+	if err != nil {
+		return "", fmt.Errorf("Bad decode.\n")
+	}
+	j := struct {
+		Token string
+		State string
+	}{}
+	json.Unmarshal(jsonAuthCode, &j)
+	if j.State != state {
+		return "", fmt.Errorf("Bad state. Expected %s, got %s\n", state, j.State)
+	}
+	return j.Token, nil
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -436,4 +387,65 @@ func verifyUrl(rawText string) (string, error) {
 	}
 
 	return tokenURL.String(), nil
+}
+
+func getOauthConfig(url string, s *Service) *oauth2.Config {
+	var endpoint = oauth2.Endpoint{
+		AuthURL:  s.OauthServiceCreds.AuthURL,
+		TokenURL: s.OauthServiceCreds.TokenURL,
+	}
+	oauthConf := &oauth2.Config{
+		ClientID:     s.OauthServiceCreds.ClientID,
+		ClientSecret: s.OauthServiceCreds.ClientSecret,
+		Scopes:       s.OauthServiceCreds.Scopes,
+		Endpoint:     endpoint,
+		RedirectURL:  getRedirectUrl(url),
+	}
+	return oauthConf
+}
+
+func getRedirectUrl(address string) string {
+	redirectUrl, err := url.Parse(address)
+	if err != nil {
+		fmt.Println("Web-Api-Gatway url setting is invalid, can't continue.")
+		return ""
+	}
+	redirectUrl.Path = "/authToken/"
+	return redirectUrl.String()
+}
+
+func generateRandomString() (string, error) {
+	b := make([]byte, 30)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", b), nil
+}
+
+func (creds *ClientCreds) generateClientCreds() {
+	fmt.Println("Generating new secret for client credentials.")
+	for i := 0; i < 10; i++ {
+
+		privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			fmt.Println("error generating key: ", err)
+			fmt.Println("Trying again")
+			continue
+		}
+
+		bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+		if err != nil {
+			fmt.Println("error marshling key: ", err)
+			fmt.Println("Trying again")
+			continue
+		}
+
+		creds.Protocol = "ECDSA_SHA256_PKCS8_V1"
+		creds.PrivateKey = base64.StdEncoding.EncodeToString(bytes)
+		return
+	}
+
+	fmt.Println("Too many failures trying to create client credentials, exiting without saving.")
+	os.Exit(1)
 }
