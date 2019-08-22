@@ -20,23 +20,25 @@
     <input type="hidden" name="PreviousAccountName" 
     value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
     <input type="hidden" name="State" value="{{.State}}" />
-    {{if and .Account .Url}}
-    {{else}}
     <div class="form-group">
-      <label for="AccountName">Account Name</label>
-      <input class="form-control" type="text" name="AccountName" 
-       value="{{if .Account}}{{.Account.AccountName}}{{end}}" required 
-       pattern="^[-a-z0-9]+$" />
+      <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
+      Account Name</label>
+      <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="text"{{end}} 
+       name="AccountName" value="{{if .Account}}{{.Account.AccountName}}{{end}}" 
+       pattern="^[-a-z0-9]+$" title="Editing a name will break existing connections. Only do this if you're really ok with fix everything!" required />
     </div>
     <div class="form-group">
-      <label for="ServiceURL">Service URL</label>
-      <input class="form-control" type="url" name="ServiceURL" 
-      value="{{if .Account}}{{.Account.ServiceURL}}{{end}}" required />
+      <label for="ServiceURL" {{if and .Account .Url}}hidden{{end}}>
+      Service URL</label>
+      <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="url"{{end}} 
+       name="ServiceURL" value="{{if .Account}}{{.Account.ServiceURL}}{{end}}" 
+       pattern="https://.*" title="Service URL should start with https." required />
     </div>
-      {{if .Account}}
+    {{if .Account}}
+      {{if not .Url}}
       <div class="form-group">
         <label for="GenerateNewCreds">Generate New Access Credentials</label>
-        <input type="checkbox" name="GenerateNewCreds" />
+        <input type="checkbox" name="GenerateNewCreds" title="Generate new access credentials will break existing connections. Only do this if you're really ok with fix everything!" />
       </div>
       {{end}}
     {{end}}
