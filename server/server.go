@@ -77,7 +77,8 @@ func main() {
 	log.Println("Reading config file...")
 
 	// TODO: move to use gorilla mux or
-	http.Handle("/service/", createConfigHandler())
+	// ???
+	// http.Handle("/service/", createConfigHandler())
 	http.HandleFunc("/authToken/", authTokenPage)
 	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
@@ -323,7 +324,11 @@ func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return appErrorf(err, "could not find service: %v", err)
 	}
-	authUrl, state, err := config.GenerateAuthUrl(c.Url, service)
+	oauthConf, err := config.GenerateOauthConfig(c.Url, service)
+	if err != nil {
+		return appErrorf(err, "could not get Oauth config: %v", err)
+	}
+	authUrl, state, err := config.GenerateAuthUrl(oauthConf)
 	if err != nil {
 		return appErrorf(err, "could not generate auth URL: %v", err)
 	}
@@ -337,15 +342,19 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return appErrorf(err, "could not get service updater: %v", err)
 	}
-	// TODO: ***point 5 rename would break exsiting connections, so maybe pop-up?
-	// 
-	if err := u.Name(r.FormValue("ServiceName")); err != nil ||
-		u.ClientID(r.FormValue("ClientID")) != nil ||
-		u.ClientSecret(r.FormValue("ClientSecret")) != nil ||
-		u.AuthURL(r.FormValue("AuthURL")) != nil ||
-		u.TokenURL(r.FormValue("TokenURL")) != nil ||
-		u.Scopes(r.FormValue("Scopes")) != nil ||
-		u.Commit() != nil {
+	// the warning is in title
+	if err := u.Name(r.FormValue("ServiceName")); err != nil {
+		return appErrorf(err, "could not update service name: %v", err)
+	}
+
+	// validations?
+	u.ClientID(r.FormValue("ClientID"))
+	u.ClientSecret(r.FormValue("ClientSecret"))
+	u.AuthURL(r.FormValue("AuthURL"))
+	u.TokenURL(r.FormValue("TokenURL"))
+	u.Scopes(r.FormValue("Scopes"))
+
+	if err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
 	}
 	http.Redirect(w, r, "/portal/", http.StatusFound)
@@ -353,13 +362,30 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
-	var decode string
 	sName := r.FormValue("ServiceName")
 	previousAccount := r.FormValue("PreviousAccountName")
+
+	c, err := config.ReadConfig()
+	if err != nil {
+		return appErrorf(err, "could not read config file: %v", err)
+	}
+	idx, _, err := serviceFromRequest(sName, c)
+	if err != nil {
+		return appErrorf(err, "could not find service: %v", err)
+	}
+	u, err := config.NewAccountUpdater(previousAccount, idx)
+	if err != nil {
+		return appErrorf(err, "could not get account updater: %v", err)
+	}
+	if err := u.Name(r.FormValue("AccountName")); err != nil {
+		return appErrorf(err, "could not update account name: %v", err)
+	}
+	u.ServiceURL(r.FormValue("ServiceURL"))
+
 	state := r.FormValue("State")
 	code := r.FormValue("Code")
 	if code != "" {
-		// do we need error
+		// how should err being used here to pop up msg(?)
 		decode, _ := config.VerifyState(code, state)
 		if decode == "" {
 			if previousAccount == "" {
@@ -371,29 +397,18 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 				http.StatusFound)
 			return nil
 		}
+		// switch to this
+		// if err := u.OauthCreds(decode); err != nil {
+		// 	return appErrorf(err, "could not update Oauth credentials: %v", err)
+		// }
+		u.OauthCreds(decode)
 	}
-	generateNewCreds := r.FormValue("GenerateNewCreds")
-	newCreds := false
-	if generateNewCreds == "on" || previousAccount == "" {
-		newCreds = true
-	}
-
-	c, err := config.ReadConfig()
-	if err != nil {
-		return appErrorf(err, "could not read config file: %v", err)
-	}
-	idx, _, err := serviceFromRequest(sName, c)
-	if err != nil {
-		return appErrorf(err, "could not find service: %v", err)
-	}
-	u, err := config.NewAccountUpdater(previousAccount, newCreds, idx)
-	if err != nil {
-		return appErrorf(err, "could not get account updater: %v", err)
+	if r.FormValue("GenerateNewCreds") == "on" || previousAccount == "" {
+		if err := u.ClientCreds(); err != nil {
+			return appErrorf(err, "could not generate client credentails: %v", err)
+		}
 	}
 
-	u.Name(r.FormValue("AccountName"))
-	u.ServiceURL(r.FormValue("ServiceURL"))
-	u.OauthCreds(decode)
 	if err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
 	}
@@ -412,8 +427,9 @@ func removeServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return appErrorf(err, "could not find service: %v", err)
 	}
-	if config.SetServices(append(c.Services[:i], c.Services[i+1:]...)) != nil {
-		return appErrorf(err, "could not save services: %v", err)
+
+	if err := config.RemoveService(i); err != nil {
+		return appErrorf(err, "could not delete service: %v", err)
 	}
 
 	http.Redirect(w, r, "/portal/", http.StatusFound)
@@ -438,8 +454,8 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return appErrorf(err, "could not find account: %v", err)
 	}
 
-	if config.SetAccounts(append(service.Accounts[:i], service.Accounts[i+1:]...), sIdx) != nil {
-		return appErrorf(err, "could not save accounts", err)
+	if config.RemoveAccount(i, sIdx) != nil {
+		return appErrorf(err, "could not delete account: %v", err)
 	}
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
@@ -484,7 +500,7 @@ func retrieveKeyHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return appErrorf(err, "could not find account: %v", err)
 	}
-	key, err := config.CreateAccountKey(c, service, account)
+	key, err := config.GenerateAccountKey(c, service, account)
 	if err != nil {
 		return appErrorf(err, "could not create account key: %v", err)
 	}
@@ -507,7 +523,11 @@ func reauthorizeAccountHandler(w http.ResponseWriter, r *http.Request) *appError
 	if err != nil {
 		return appErrorf(err, "could not find account: %v", err)
 	}
-	authUrl, state, err := config.GenerateAuthUrl(c.Url, service)
+	oauthConf, err := config.GenerateOauthConfig(c.Url, service)
+	if err != nil {
+		return appErrorf(err, "could not get Oauth config: %v", err)
+	}
+	authUrl, state, err := config.GenerateAuthUrl(oauthConf)
 	if err != nil {
 		return appErrorf(err, "could not generate auth URL: %v", err)
 	}

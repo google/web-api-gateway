@@ -27,7 +27,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 
@@ -50,23 +49,40 @@ func SetEndpointUrl(rawText string) error {
 	return save()
 }
 
-func SetServices(services []*Service) error {
+func AddUser(rawText string) error {
 	c, save, err := ReadWriteConfig()
 	if err != nil {
 		return err
 	}
 
-	c.Services = services
+	list := strings.Split(rawText, ",")
+	for _, input := range list {
+		email, err := verifyEmail(input)
+		if err != nil {
+			return err
+		}
+		c.Users[email] = true
+	}
 	return save()
 }
 
-func SetAccounts(accounts []*Account, s int) error {
+func RemoveService(i int) error {
 	c, save, err := ReadWriteConfig()
 	if err != nil {
 		return err
 	}
 
-	c.Services[s].Accounts = accounts
+	c.Services = append(c.Services[:i], c.Services[i+1:]...)
+	return save()
+}
+
+func RemoveAccount(i int, s int) error {
+	c, save, err := ReadWriteConfig()
+	if err != nil {
+		return err
+	}
+
+	c.Services[s].Accounts = append(c.Services[s].Accounts[:i], c.Services[s].Accounts[i+1:]...)
 	return save()
 }
 
@@ -209,17 +225,16 @@ func (u *ServiceUpdater) Scopes(scopes string) error {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-func NewAccountUpdater(previousName string, newCreds bool, s int) (*AccountUpdater, error) {
+func NewAccountUpdater(previousName string, s int) (*AccountUpdater, error) {
 	c, save, err := ReadWriteConfig()
 	if err != nil {
 		return nil, err
 	}
 
 	return &AccountUpdater{
-		c:            c,
-		s:            s,
+		C:            c,
+		S:            s,
 		previousName: previousName,
-		newCreds:     newCreds,
 		save:         save,
 	}, nil
 }
@@ -228,10 +243,10 @@ type AccountUpdater struct {
 	previousName     string
 	name, serviceURL *string
 	oauthCreds       *oauth2.Token
-	newCreds         bool
+	clientCreds      *ClientCreds
 	save             func() error
-	s                int
-	c                *Config
+	S                int
+	C                *Config
 }
 
 func (u *AccountUpdater) Commit() error {
@@ -241,9 +256,9 @@ func (u *AccountUpdater) Commit() error {
 		a = &Account{
 			ClientCreds: &ClientCreds{},
 		}
-		u.c.Services[u.s].Accounts = append(u.c.Services[u.s].Accounts, a)
+		u.C.Services[u.S].Accounts = append(u.C.Services[u.S].Accounts, a)
 	} else {
-		for _, other := range u.c.Services[u.s].Accounts {
+		for _, other := range u.C.Services[u.S].Accounts {
 			if other.AccountName == u.previousName {
 				a = other
 			}
@@ -261,27 +276,24 @@ func (u *AccountUpdater) Commit() error {
 		a.ServiceURL = *u.serviceURL
 	}
 
-	if u.newCreds {
-		a.ClientCreds.generateClientCreds()
-		fmt.Printf("Generating new access credentials, privkey: %s, protocol: %s \n",
-			a.ClientCreds.PrivateKey, a.ClientCreds.Protocol)
-	}
-
 	if u.oauthCreds != nil {
 		a.OauthAccountCreds = u.oauthCreds
+	}
+
+	if u.ClientCreds != nil {
+		a.ClientCreds = u.clientCreds
 	}
 	return u.save()
 }
 
 func (u *AccountUpdater) Name(name string) error {
-	// verifyName() not required for UI path
 	err := verifyName(name)
 	if err != nil {
 		return err
 	}
 
 	if name != u.previousName {
-		for _, other := range u.c.Services[u.s].Accounts {
+		for _, other := range u.C.Services[u.S].Accounts {
 			if name == other.AccountName {
 				return errors.New("That account name is already in use.  Choose another.")
 			}
@@ -302,8 +314,20 @@ func (u *AccountUpdater) ServiceURL(serviceURL string) error {
 	return nil
 }
 
+func (u *AccountUpdater) ClientCreds() error {
+	creds, err := generateNewClientCreds()
+	if err != nil {
+		return err
+	}
+	u.clientCreds = creds
+	return nil
+}
+
 func (u *AccountUpdater) OauthCreds(code string) error {
-	oauthConf := getOauthConfig(u.c.Url, u.c.Services[u.s])
+	oauthConf, err := GenerateOauthConfig(u.C.Url, u.C.Services[u.S])
+	if err != nil {
+		return err
+	}
 	token, err := oauthConf.Exchange(context.Background(), code)
 	if err != nil {
 		return err
@@ -316,7 +340,7 @@ func (u *AccountUpdater) OauthCreds(code string) error {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-func CreateAccountKey(c *Config, s *Service, a *Account) (string, error) {
+func GenerateAccountKey(c *Config, s *Service, a *Account) (string, error) {
 	j := struct {
 		WebGatewayUrl string
 		Protocol      string
@@ -337,8 +361,26 @@ func CreateAccountKey(c *Config, s *Service, a *Account) (string, error) {
 	return fmt.Sprintf("KEYBEGIN_%s/%s_%s_KEYEND", s.ServiceName, a.AccountName, inner), nil
 }
 
-func GenerateAuthUrl(url string, s *Service) (string, string, error) {
-	oauthConf := getOauthConfig(url, s)
+func GenerateOauthConfig(url string, s *Service) (*oauth2.Config, error) {
+	var endpoint = oauth2.Endpoint{
+		AuthURL:  s.OauthServiceCreds.AuthURL,
+		TokenURL: s.OauthServiceCreds.TokenURL,
+	}
+	redirectUrl, err := getRedirectUrl(url)
+	if err != nil {
+		return nil, err
+	}
+	oauthConf := &oauth2.Config{
+		ClientID:     s.OauthServiceCreds.ClientID,
+		ClientSecret: s.OauthServiceCreds.ClientSecret,
+		Scopes:       s.OauthServiceCreds.Scopes,
+		Endpoint:     endpoint,
+		RedirectURL:  redirectUrl,
+	}
+	return oauthConf, nil
+}
+
+func GenerateAuthUrl(oauthConf *oauth2.Config) (string, string, error) {
 	state, err := generateRandomString()
 	if err != nil {
 		return "", "", fmt.Errorf("Problem with random number generation.  Can't continue.\n")
@@ -349,7 +391,8 @@ func GenerateAuthUrl(url string, s *Service) (string, string, error) {
 func VerifyState(code string, state string) (string, error) {
 	jsonAuthCode, err := base64.StdEncoding.DecodeString(code)
 	if err != nil {
-		return "", fmt.Errorf("Bad decode.\n")
+		// switch to ""
+		return "1", fmt.Errorf("Bad decode.\n")
 	}
 	j := struct {
 		Token string
@@ -357,7 +400,8 @@ func VerifyState(code string, state string) (string, error) {
 	}{}
 	json.Unmarshal(jsonAuthCode, &j)
 	if j.State != state {
-		return "", fmt.Errorf("Bad state. Expected %s, got %s\n", state, j.State)
+		// switch to ""
+		return "1", fmt.Errorf("Bad state. Expected %s, got %s\n", state, j.State)
 	}
 	return j.Token, nil
 }
@@ -389,29 +433,24 @@ func verifyUrl(rawText string) (string, error) {
 	return tokenURL.String(), nil
 }
 
-func getOauthConfig(url string, s *Service) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
-		AuthURL:  s.OauthServiceCreds.AuthURL,
-		TokenURL: s.OauthServiceCreds.TokenURL,
+func verifyEmail(rawText string) (string, error) {
+	rxEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+" +
+		"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +
+		"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+	email := strings.TrimSpace(rawText)
+	if len(email) > 254 || !rxEmail.MatchString(email) {
+		return "", errors.New("Email address is not valid.")
 	}
-	oauthConf := &oauth2.Config{
-		ClientID:     s.OauthServiceCreds.ClientID,
-		ClientSecret: s.OauthServiceCreds.ClientSecret,
-		Scopes:       s.OauthServiceCreds.Scopes,
-		Endpoint:     endpoint,
-		RedirectURL:  getRedirectUrl(url),
-	}
-	return oauthConf
+	return email, nil
 }
 
-func getRedirectUrl(address string) string {
+func getRedirectUrl(address string) (string, error) {
 	redirectUrl, err := url.Parse(address)
 	if err != nil {
-		fmt.Println("Web-Api-Gatway url setting is invalid, can't continue.")
-		return ""
+		return "", errors.New("Web-Api-Gatway url setting is invalid, can't continue.")
 	}
 	redirectUrl.Path = "/authToken/"
-	return redirectUrl.String()
+	return redirectUrl.String(), nil
 }
 
 func generateRandomString() (string, error) {
@@ -423,8 +462,8 @@ func generateRandomString() (string, error) {
 	return fmt.Sprintf("%x", b), nil
 }
 
-func (creds *ClientCreds) generateClientCreds() {
-	fmt.Println("Generating new secret for client credentials.")
+func generateNewClientCreds() (*ClientCreds, error) {
+	fmt.Println("Generating new secret for client credentials.\n")
 	for i := 0; i < 10; i++ {
 
 		privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -441,11 +480,13 @@ func (creds *ClientCreds) generateClientCreds() {
 			continue
 		}
 
-		creds.Protocol = "ECDSA_SHA256_PKCS8_V1"
-		creds.PrivateKey = base64.StdEncoding.EncodeToString(bytes)
-		return
+		creds := &ClientCreds{
+			Protocol:   "ECDSA_SHA256_PKCS8_V1",
+			PrivateKey: base64.StdEncoding.EncodeToString(bytes),
+		}
+		return creds, nil
 	}
 
-	fmt.Println("Too many failures trying to create client credentials, exiting without saving.")
-	os.Exit(1)
+	// fmt.Println("Too many failures trying to create client credentials, exiting without saving.")
+	return nil, errors.New("Too many failures trying to create client credentials, exiting without saving.")
 }

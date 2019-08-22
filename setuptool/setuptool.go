@@ -35,17 +35,16 @@ func main() {
 	term := newRealTerm()
 
 	takeActionLoop(term, backIsExit,
+		newAction("Retrieve Account Key", retrieveAccountKey),
+		newAction("Edit Web Api Gateway Url", editUrl),
 		newAction("Add Service", addService),
 		newAction("Edit Service", editService),
+		newAction("Delete Service", removeService),
+		newAction("Add Account", addAccount),
+		newAction("Edit Account", editAccount),
+		newAction("Delete Account", removeAccount),
+		newAction("Add authorized UI users (email address)", addUser),
 	)
-	// newAction("Retrieve Account Key", e.retrieveAccountKey),
-	// newAction("Edit Web Api Gateway Url", e.editUrl),
-	// newAction("Add service", e.addService),
-	// newAction("Edit service (including adding new accounts to an existing service)", e.editService),
-	// newAction("Delete service", e.removeService))
-	// add account
-	// edit account
-	// remove account
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -63,6 +62,7 @@ func commit(t *term, c commiter) {
 		if err == nil {
 			fmt.Println("Save successful!")
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+			// restart should not be neccessary
 			fmt.Println("Remember to restart the server.")
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 			return
@@ -78,10 +78,15 @@ func commit(t *term, c commiter) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-type serviceEdit struct {
-	prompt string
-	f      func(*config.ServiceUpdater, string) error
+func editUrl(t *term) {
+	userInput(t, "Enter the Web Api Gateway Url> ", config.SetEndpointUrl)
 }
+
+// ?
+// type serviceEdit struct {
+// 	prompt string
+// 	f      func(*config.ServiceUpdater, string) error
+// }
 
 func ServiceName(u *config.ServiceUpdater, t *term) {
 	userInput(t, "Choose a name (only use lowercase letters, numbers, and dashes)> ", u.Name)
@@ -102,8 +107,53 @@ func ServiceAuthURL(u *config.ServiceUpdater, t *term) {
 func ServiceTokenURL(u *config.ServiceUpdater, t *term) {
 	userInput(t, "Enter the Oauth Token URL> ", u.TokenURL)
 }
+
 func ServiceScopes(u *config.ServiceUpdater, t *term) {
 	userInput(t, "Enter the Oauth scopes> ", u.Scopes)
+}
+
+func AccountName(u *config.AccountUpdater, t *term) {
+	userInput(t, "Choose a name (only use lowercase letters, numbers, and dashes)> ", u.Name)
+}
+
+func AccountServiceURL(u *config.AccountUpdater, t *term) {
+	userInput(t, "Enter the Service URL> ", u.ServiceURL)
+}
+
+func AccountOauthCreds(u *config.AccountUpdater, t *term) bool {
+	oauthConf, err := config.GenerateOauthConfig(u.C.Url, u.C.Services[u.S])
+	if err != nil {
+		return false
+	}
+	for {
+		authUrl, state, err := config.GenerateAuthUrl(oauthConf)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		fmt.Println("Please go to this url and authorize the application:")
+		fmt.Println(authUrl)
+		fmt.Printf("Enter the code here> ")
+		encodedAuthCode := t.readSimpleString()
+		decodedToken, err := config.VerifyState(encodedAuthCode, state)
+		// switch to err != nil
+		// if err != nil {
+		if decodedToken == "" {
+			fmt.Println(err)
+			continue
+		}
+		if err = u.OauthCreds(decodedToken); err == nil {
+			return true
+		}
+		fmt.Println(err)
+		fmt.Println("\nPlease try again.")
+	}
+}
+
+func AccountClientCreds(u *config.AccountUpdater, t *term) {
+	if err := u.ClientCreds(); err != nil {
+		fmt.Println(err)
+	}
 }
 
 func addService(t *term) {
@@ -130,7 +180,7 @@ func serviceCurry(f func(*config.ServiceUpdater, *term), u *config.ServiceUpdate
 }
 
 func editService(t *term) {
-	name := chooseService(t)
+	_, name := chooseService(t)
 	if name == "" {
 		return
 	}
@@ -151,16 +201,149 @@ func editService(t *term) {
 	commit(t, u)
 }
 
-func chooseService(t *term) string {
+func removeService(t *term) {
+	idx, name := chooseService(t)
+	if idx == -1 {
+		return
+	}
+	if config.RemoveService(idx) != nil {
+		fmt.Println("Error deleting service: " + name)
+		return
+	}
+}
+
+func addAccount(t *term) {
+	idx, _ := chooseService(t)
+	if idx == -1 {
+		return
+	}
+	u, err := config.NewAccountUpdater("", idx)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	AccountName(u, t)
+	AccountServiceURL(u, t)
+	AccountClientCreds(u, t)
+
+	if !AccountOauthCreds(u, t) {
+		fmt.Println("Could not add account")
+		return
+	}
+	commit(t, u)
+}
+
+func accountCurry(f func(*config.AccountUpdater, *term), u *config.AccountUpdater) func(*term) {
+	return func(t *term) {
+		f(u, t)
+	}
+}
+
+func accountCurry2(f func(*config.AccountUpdater, *term)(bool), u *config.AccountUpdater) func(*term) {
+	return func(t *term) {
+		f(u, t)
+	}
+}
+
+func editAccount(t *term) {
+	idx, _ := chooseService(t)
+	if idx == -1 {
+		return
+	}
+	_, name := chooseAccount(t, idx)
+	if name == "" {
+		return
+	}
+	u, err := config.NewAccountUpdater(name, idx)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	takeActionLoop(t, backIsBack,
+		newAction("Edit name", confirmRename(accountCurry(AccountName, u))),
+		newAction("Edit service Url", accountCurry(AccountServiceURL, u)),
+		newAction("Generate New Client Credentials", confirmNewClientCredentials(accountCurry(AccountClientCreds, u))),
+		newAction("Reauthorzie account", accountCurry2(AccountOauthCreds, u)))
+
+	commit(t, u)
+}
+
+func removeAccount(t *term) {
+	s, _ := chooseService(t)
+	if s == -1 {
+		return
+	}
+	a, name := chooseAccount(t, s)
+	if a == -1 {
+		return
+	}
+	if config.RemoveAccount(s, a) != nil {
+		fmt.Println("Error deleting account: " + name)
+		return
+	}
+}
+
+func retrieveAccountKey(t *term) {
 	c, err := config.ReadConfig()
 	if err != nil {
 		fmt.Println("Unable to read config", err)
-		return ""
+		return
+	}
+
+	type accountSpecific struct {
+		s *config.Service
+		a *config.Account
+	}
+
+	allAccounts := make([]accountSpecific, 0)
+
+	for _, s := range c.Services {
+		for _, a := range s.Accounts {
+			allAccounts = append(allAccounts, accountSpecific{s, a})
+		}
+	}
+
+	if len(allAccounts) == 0 {
+		fmt.Println("You must create accounts first!")
+		return
+	}
+
+	fmt.Println("Select which account:")
+	namer := func(i int) string {
+		return allAccounts[i].s.ServiceName + "/" + allAccounts[i].a.AccountName
+	}
+	i := t.readChoice(namer, len(allAccounts))
+
+	key, err := config.GenerateAccountKey(c, allAccounts[i].s, allAccounts[i].a)
+	if err != nil {
+		fmt.Println("Error creating account key:")
+		fmt.Println(err)
+		return
+	}
+	fmt.Println()
+	fmt.Println("Copy and paste everything from (and including) KEYBEGIN to KEYEND")
+	fmt.Println()
+	fmt.Println(key)
+	fmt.Println()
+}
+
+func addUser(t *term) {
+	userInput(t, "Enter the users' emails> ", config.AddUser)
+	fmt.Println("User added.")
+}
+
+func chooseService(t *term) (int, string) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		fmt.Println("Unable to read config", err)
+		return -1, ""
 	}
 
 	if len(c.Services) == 0 {
 		fmt.Println("There are no services.")
-		return ""
+		return -1, ""
 	}
 
 	fmt.Println("Services:")
@@ -172,7 +355,33 @@ func chooseService(t *term) string {
 	}
 
 	namer := func(i int) string { return names[i] }
-	return names[t.readChoice(namer, len(c.Services))]
+	idx := t.readChoice(namer, len(c.Services))
+	return idx, names[idx]
+}
+
+func chooseAccount(t *term, s int) (int, string) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		fmt.Println("Unable to read config", err)
+		return -1, ""
+	}
+
+	if len(c.Services[s].Accounts) == 0 {
+		fmt.Println("There are no accounts.\n")
+		return -1, ""
+	}
+
+	fmt.Println("Accounts:")
+
+	var names []string
+
+	for _, a := range c.Services[s].Accounts {
+		names = append(names, a.AccountName)
+	}
+
+	namer := func(i int) string { return names[i] }
+	idx := t.readChoice(namer, len(c.Services[s].Accounts))
+	return idx, names[idx]
 }
 
 func userInput(t *term, prompt string, handler func(string) error) {
