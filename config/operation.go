@@ -253,9 +253,7 @@ func (u *AccountUpdater) Commit() error {
 	var a *Account
 
 	if u.previousName == "" {
-		a = &Account{
-			ClientCreds: &ClientCreds{},
-		}
+		a = &Account{}
 		u.C.Services[u.S].Accounts = append(u.C.Services[u.S].Accounts, a)
 	} else {
 		for _, other := range u.C.Services[u.S].Accounts {
@@ -280,7 +278,7 @@ func (u *AccountUpdater) Commit() error {
 		a.OauthAccountCreds = u.oauthCreds
 	}
 
-	if u.ClientCreds != nil {
+	if u.clientCreds != nil {
 		a.ClientCreds = u.clientCreds
 	}
 	return u.save()
@@ -487,6 +485,5 @@ func generateNewClientCreds() (*ClientCreds, error) {
 		return creds, nil
 	}
 
-	// fmt.Println("Too many failures trying to create client credentials, exiting without saving.")
 	return nil, errors.New("Too many failures trying to create client credentials, exiting without saving.")
 }

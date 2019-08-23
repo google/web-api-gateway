@@ -240,7 +240,7 @@ func accountCurry(f func(*config.AccountUpdater, *term), u *config.AccountUpdate
 	}
 }
 
-func accountCurry2(f func(*config.AccountUpdater, *term)(bool), u *config.AccountUpdater) func(*term) {
+func accountCurry2(f func(*config.AccountUpdater, *term) bool, u *config.AccountUpdater) func(*term) {
 	return func(t *term) {
 		f(u, t)
 	}
