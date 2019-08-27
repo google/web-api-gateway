@@ -389,8 +389,7 @@ func GenerateAuthUrl(oauthConf *oauth2.Config) (string, string, error) {
 func VerifyState(code string, state string) (string, error) {
 	jsonAuthCode, err := base64.StdEncoding.DecodeString(code)
 	if err != nil {
-		// switch to ""
-		return "1", fmt.Errorf("Bad decode.\n")
+		return "", fmt.Errorf("Bad decode.\n")
 	}
 	j := struct {
 		Token string
@@ -398,8 +397,7 @@ func VerifyState(code string, state string) (string, error) {
 	}{}
 	json.Unmarshal(jsonAuthCode, &j)
 	if j.State != state {
-		// switch to ""
-		return "1", fmt.Errorf("Bad state. Expected %s, got %s\n", state, j.State)
+		return "", fmt.Errorf("Bad state. Expected %s, got %s\n", state, j.State)
 	}
 	return j.Token, nil
 }

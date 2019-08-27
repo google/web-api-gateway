@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	uuid "github.com/gofrs/uuid"
 	option "google.golang.org/api/option"
@@ -40,6 +41,7 @@ const (
 	defaultSessionID     = "default"
 	profileSessionKey    = "profile"
 	oauthTokenSessionKey = "oauth_token"
+	stateSessionKey      = "state"
 	oauthFlowRedirectKey = "redirect"
 )
 
@@ -64,7 +66,7 @@ type data struct {
 	Service *config.Service
 	Account *config.Account
 	Url     string
-	State   string
+	Flash   string
 }
 
 type profile struct {
@@ -103,26 +105,7 @@ func UIHandlers() *mux.Router {
 	return r
 }
 
-// loginHandler initiates an OAuth flow to the Google+ API
 func loginHandler(w http.ResponseWriter, r *http.Request) *appError {
-	sessionID := uuid.Must(uuid.NewV4()).String()
-
-	oauthFlowSession, err := cookieStore.New(r, sessionID)
-	if err != nil {
-		return appErrorf(err, "could not create oauth session: %v", err)
-	}
-	oauthFlowSession.Options.MaxAge = 10 * 60 // 10 minutes
-
-	// redirectURL, err := validateRedirectURL(r.FormValue("redirect"))
-	// if err != nil {
-	//  return appErrorf(err, "invalid redirect URL: %v", err)
-	// }
-	// oauthFlowSession.Values[oauthFlowRedirectKey] = redirectURL
-
-	if err := oauthFlowSession.Save(r, w); err != nil {
-		return appErrorf(err, "could not save session: %v", err)
-	}
-
 	c, err := config.ReadConfig()
 	if err != nil {
 		return appErrorf(err, "could not read config file: %v", err)
@@ -134,37 +117,44 @@ func loginHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	redirectUrl.Path = "/auth"
 	oauthConf.RedirectURL = redirectUrl.String()
+	
+	sessionID := uuid.Must(uuid.NewV4()).String()
+	oauthFlowSession, err := cookieStore.New(r, sessionID)
+	if err != nil {
+		return appErrorf(err, "could not create oauth session: %v", err)
+	}
+	oauthFlowSession.Options.MaxAge = 10 * 60 // 10 minutes
+	oauthFlowSession.Values[oauthFlowRedirectKey] = redirectUrl.Path
+	if err := oauthFlowSession.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
+	}
+
 	url := oauthConf.AuthCodeURL(sessionID, oauth2.ApprovalForce)
 	http.Redirect(w, r, url, http.StatusFound)
 	return nil
 }
 
 func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) *appError {
-	// Validate state parameter using session
-	_, err := cookieStore.Get(r, r.FormValue("state"))
+	oauthFlowSession, err := cookieStore.Get(r, r.FormValue("state"))
 	if err != nil {
 		return appErrorf(err, "invalid state parameter. try logging in again.")
 	}
 
-	// redirectURL, ok := oauthFlowSession.Values[oauthFlowRedirectKey].(string)
-	// // Validate this callback request came from the app.
-	// if !ok {
-	//  return appErrorf(err, "invalid state parameter. try logging in again.")
-	// }
+	// ?
+	redirectURL, ok := oauthFlowSession.Values[oauthFlowRedirectKey].(string)
+	if !ok || strings.Compare(r.URL.Path, redirectURL) != 0 {
+		return &appError{Message: "The callback is suspicious."}
+	}
 
-	///////////////////////////////
 	ctx := context.Background()
 	code := r.FormValue("code")
 	tok, err := oauthConf.Exchange(ctx, code)
 	if err != nil {
 		return appErrorf(err, "could not get auth token: %v", err)
 	}
-	session, err := cookieStore.New(r, defaultSessionID)
-	if err != nil {
-		// TODO: point 8
-		appErrorf(err, "could not get default session: %v", err)
-		// return appErrorf(err, "could not get default session: %v", err)
-	}
+	// if browser saved an old session with name "default", the err here will
+	// not be nil, but this is ok, so no need to check on err
+	session, _ := cookieStore.New(r, defaultSessionID)
 	plusService, err := plus.NewService(ctx, option.WithTokenSource(oauthConf.TokenSource(ctx, tok)))
 	if err != nil {
 		return appErrorf(err, "could not get plus service: %v", err)
@@ -180,8 +170,6 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return appErrorf(err, "could not read config file: %v", err)
 	}
 
-	// emmm [0]?
-	log.Println(profile.Emails)
 	emailValue := profile.Emails[0].Value
 	if c.Users[emailValue] {
 		session.Values[oauthTokenSessionKey] = tok
@@ -196,7 +184,7 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) *appError {
-	session, err := cookieStore.New(r, defaultSessionID)
+	session, err := cookieStore.Get(r, defaultSessionID)
 	if err != nil {
 		return appErrorf(err, "could not get default session: %v", err)
 	}
@@ -229,7 +217,7 @@ func editAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 func addServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
-	return editServiceTmpl.Execute(w, r, nil)
+	return editServiceTmpl.Execute(w, r, data{nil, nil, "", flashFromSession(w, r)})
 }
 
 func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -250,8 +238,10 @@ func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return appErrorf(err, "could not generate auth URL: %v", err)
 	}
-
-	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl, state})
+	if err := setStateToSession(w, r, state); err != nil {
+		return err
+	}
+	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl, flashFromSession(w, r)})
 }
 
 func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -260,12 +250,26 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return appErrorf(err, "could not get service updater: %v", err)
 	}
+
+	session, e := cookieStore.Get(r, defaultSessionID)
+	if e != nil {
+		return appErrorf(e, "could not get default session: %v", e)
+	}
 	// the warning is in title
 	if err := u.Name(r.FormValue("ServiceName")); err != nil {
-		return appErrorf(err, "could not update service name: %v", err)
+		session.AddFlash(fmt.Sprintf("%v", err))
+		if err := session.Save(r, w); err != nil {
+			return appErrorf(err, "could not save session: %v", err)
+		}
+		if name == "" {
+			http.Redirect(w, r, "/portal/addservice", http.StatusFound)
+			return nil
+		} else {
+			http.Redirect(w, r, fmt.Sprintf("/portal/editservice/%s", name), http.StatusFound)
+			return nil
+		}
 	}
 
-	// validations?
 	u.ClientID(r.FormValue("ClientID"))
 	u.ClientSecret(r.FormValue("ClientSecret"))
 	u.AuthURL(r.FormValue("AuthURL"))
@@ -295,25 +299,51 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return appErrorf(err, "could not get account updater: %v", err)
 	}
-	if err := u.Name(r.FormValue("AccountName")); err != nil {
-		return appErrorf(err, "could not update account name: %v", err)
+
+	session, e := cookieStore.Get(r, defaultSessionID)
+	if e != nil {
+		return appErrorf(e, "could not get default session: %v", e)
 	}
+	if err := u.Name(r.FormValue("AccountName")); err != nil {
+		session.AddFlash(fmt.Sprintf("%v", err))
+		if err := session.Save(r, w); err != nil {
+			return appErrorf(err, "could not save session: %v", err)
+		}
+		if previousAccount == "" {
+			http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
+			return nil
+		} else {
+			http.Redirect(w, r,
+				fmt.Sprintf("/portal/editaccount/%s/%s", sName, previousAccount),
+				http.StatusFound)
+			return nil
+		}
+	}
+
 	u.ServiceURL(r.FormValue("ServiceURL"))
 
-	state := r.FormValue("State")
+	state, ok := session.Values[stateSessionKey].(string)
+	if !ok {
+		return &appError{Message: "could not get state"}
+	}
+	log.Printf("getting state: %s", state)
 	code := r.FormValue("Code")
 	if code != "" {
-		// how should err being used here to pop up msg(?)
-		decode, _ := config.VerifyState(code, state)
-		if decode == "" {
+		decode, err := config.VerifyState(code, state)
+		if err != nil {
+			session.AddFlash("Oauth failed, please try again.")
+			if err := session.Save(r, w); err != nil {
+				return appErrorf(err, "could not save session: %v", err)
+			}
 			if previousAccount == "" {
 				http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
 				return nil
+			} else {
+				http.Redirect(w, r,
+					fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
+					http.StatusFound)
+				return nil
 			}
-			http.Redirect(w, r,
-				fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
-				http.StatusFound)
-			return nil
 		}
 		// switch to this
 		// if err := u.OauthCreds(decode); err != nil {
@@ -391,14 +421,14 @@ func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) *app
 		return appErrorf(err, "could not find service: %v", err)
 	}
 	if tmpl == editServiceTmpl {
-		return tmpl.Execute(w, r, service)
+		return tmpl.Execute(w, r, data{service, nil, "", flashFromSession(w, r)})
 	} else {
 		accountStr := mux.Vars(r)["account"]
 		_, account, err := accountFromRequest(accountStr, service)
 		if err != nil {
 			return appErrorf(err, "could not find account: %v", err)
 		}
-		return tmpl.Execute(w, r, data{service, account, "", ""})
+		return tmpl.Execute(w, r, data{service, account, "", flashFromSession(w, r)})
 	}
 }
 
@@ -449,8 +479,10 @@ func reauthorizeAccountHandler(w http.ResponseWriter, r *http.Request) *appError
 	if err != nil {
 		return appErrorf(err, "could not generate auth URL: %v", err)
 	}
-
-	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, state})
+	if err := setStateToSession(w, r, state); err != nil {
+		return err
+	}
+	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, flashFromSession(w, r)})
 }
 
 func serviceFromRequest(serviceStr string, c *config.Config) (int, *config.Service, error) {
@@ -483,14 +515,13 @@ func createStore() *sessions.CookieStore {
 	store := sessions.NewCookieStore(securecookie.GenerateRandomKey(32))
 	store.Options = &sessions.Options{
 		Secure:   true,
+		Path:     "/",
 		MaxAge:   86400 * 7, // TODO: change to another duration?
 		HttpOnly: true,
 	}
 	return store
 }
 
-// profileFromSession retreives the Google+ profile from the default session.
-// Returns nil if the profile cannot be retreived (e.g. user is logged out).
 func profileFromSession(r *http.Request) *profile {
 	session, err := cookieStore.Get(r, defaultSessionID)
 	if err != nil {
@@ -505,6 +536,37 @@ func profileFromSession(r *http.Request) *profile {
 		return nil
 	}
 	return profile
+}
+
+func flashFromSession(w http.ResponseWriter, r *http.Request) string {
+	session, err := cookieStore.Get(r, defaultSessionID)
+	if err != nil {
+		return ""
+	}
+	var flash string
+	var ok bool
+	flashes := session.Flashes()
+	if len(flashes) > 0 {
+		if flash, ok = flashes[0].(string); !ok {
+			return ""
+		}
+	}
+	if err := session.Save(r, w); err != nil {
+		return ""
+	}
+	return flash
+}
+
+func setStateToSession(w http.ResponseWriter, r *http.Request, state string) *appError {
+	session, err := cookieStore.Get(r, defaultSessionID)
+	if err != nil {
+		return appErrorf(err, "could not get default session: %v", err)
+	}
+	session.Values[stateSessionKey] = state
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
+	}
+	return nil
 }
 
 type appHandler func(http.ResponseWriter, *http.Request) *appError
