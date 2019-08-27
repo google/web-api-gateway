@@ -51,6 +51,7 @@ var (
 	editServiceTmpl = parseTemplate(*templatesFolder + "editService.html")
 	editAccountTmpl = parseTemplate(*templatesFolder + "editAccount.html")
 	keyTmpl         = parseTemplate(*templatesFolder + "key.html")
+	userTmpl        = parseTemplate(*templatesFolder + "user.html")
 )
 
 var oauthConf *oauth2.Config = &oauth2.Config{
@@ -102,6 +103,9 @@ func UIHandlers() *mux.Router {
 	r.Methods("GET").Path("/auth").Handler(appHandler(oauthCallbackHandler))
 	r.Methods("POST").Path("/logout").Handler(appHandler(logoutHandler))
 
+	r.Methods("GET").Path("/portal/users").Handler(appHandler(listUserHandler))
+	r.Methods("POST").Path("/portal/adduser").Handler(appHandler(addUserHandler))
+
 	return r
 }
 
@@ -117,7 +121,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	redirectUrl.Path = "/auth"
 	oauthConf.RedirectURL = redirectUrl.String()
-	
+
 	sessionID := uuid.Must(uuid.NewV4()).String()
 	oauthFlowSession, err := cookieStore.New(r, sessionID)
 	if err != nil {
@@ -402,7 +406,7 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return appErrorf(err, "could not find account: %v", err)
 	}
 
-	if config.RemoveAccount(i, sIdx) != nil {
+	if err := config.RemoveAccount(i, sIdx); err != nil {
 		return appErrorf(err, "could not delete account: %v", err)
 	}
 	http.Redirect(w, r, "/portal/", http.StatusFound)
@@ -483,6 +487,23 @@ func reauthorizeAccountHandler(w http.ResponseWriter, r *http.Request) *appError
 		return err
 	}
 	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, flashFromSession(w, r)})
+}
+
+func listUserHandler(w http.ResponseWriter, r *http.Request) *appError {
+	c, err := config.ReadConfig()
+	if err != nil {
+		return appErrorf(err, "could not read config file: %v", err)
+	}
+	return userTmpl.Execute(w, r, c.Users)
+}
+
+func addUserHandler(w http.ResponseWriter, r *http.Request) *appError {
+	email := r.FormValue("Email")
+	if err := config.AddUser(email); err != nil {
+		return appErrorf(err, "could not add user: %v", err)
+	}
+	http.Redirect(w, r, "/portal/users", http.StatusFound)
+	return nil
 }
 
 func serviceFromRequest(serviceStr string, c *config.Config) (int, *config.Service, error) {
