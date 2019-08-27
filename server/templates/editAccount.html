@@ -19,7 +19,7 @@
     <input type="hidden" name="ServiceName" value="{{.Service.ServiceName}}" />
     <input type="hidden" name="PreviousAccountName" 
     value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
-    <input type="hidden" name="State" value="{{.State}}" />
+    <p><font color="red">{{.Flash}}</font></p>
     <div class="form-group">
       <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
       Account Name</label>

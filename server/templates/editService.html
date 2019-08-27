@@ -13,42 +13,44 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 */}}
-<h3>{{if .}}Edit{{else}}Add{{end}} Service</h3>
+<h3>{{if .Service}}Edit{{else}}Add{{end}} Service</h3>
 
   <form action="/portal/saveservice" method="post">
-    <input type="hidden" name="PreviousServiceName" value="{{.ServiceName}}" />
+    <input type="hidden" name="PreviousServiceName" 
+     value="{{if .Service}}{{.Service.ServiceName}}{{end}}" />
+    <p><font color="red">{{.Flash}}</font></p>
     <div class="form-group">
       <label for="ServiceName">Service Name:</label>
       <input class="form-control" type="text" name="ServiceName" 
-       value="{{.ServiceName}}" pattern="^[-a-z0-9]+$" 
+       value="{{if .Service}}{{.Service.ServiceName}}{{end}}" pattern="^[-a-z0-9]+$" 
        title="Editing a name will break existing connections. Only do this if you're really ok with fix everything!" required />
     </div>
     <div class="form-group">
       <label for="ClientID">Client ID</label>
       <input class="form-control" type="text" name="ClientID" 
-       value="{{.OauthServiceCreds.ClientID}}" required />
+       value="{{if .Service}}{{.Service.OauthServiceCreds.ClientID}}{{end}}" required />
     </div>
     <div class="form-group">
       <label for="ClientSecret">Client Secret</label>
       <input class="form-control" type="password" name="ClientSecret" 
-       value="{{.OauthServiceCreds.ClientSecret}}" required />
+       value="{{if .Service}}{{.Service.OauthServiceCreds.ClientSecret}}{{end}}" required />
     </div>
     <div class="form-group">
       <label for="AuthURL">Auth URL</label>
       <input class="form-control" type="url" name="AuthURL" 
-       value="{{.OauthServiceCreds.AuthURL}}" pattern="https://.*" 
+       value="{{if .Service}}{{.Service.OauthServiceCreds.AuthURL}}{{end}}" pattern="https://.*" 
        title="Auth URL should start with https." required />
     </div>
     <div class="form-group">
       <label for="TokenURL">Token URL</label>
       <input class="form-control" type="url" name="TokenURL" 
-      value="{{.OauthServiceCreds.TokenURL}}" pattern="https://.*" 
+      value="{{if .Service}}{{.Service.OauthServiceCreds.TokenURL}}{{end}}" pattern="https://.*" 
       title="Token URL should start with https." required />
     </div>
     <div class="form-group">
       <label for="Scopes">Scopes</label>
       <input class="form-control" type="text" name="Scopes" 
-       value="{{range .OauthServiceCreds.Scopes}}{{.}},{{end}}" required />
+       value="{{if .Service}}{{range .Service.OauthServiceCreds.Scopes}}{{.}},{{end}}{{end}}" required />
     </div>
     <div class="form-group">
       <button type="submit">Save</button>
