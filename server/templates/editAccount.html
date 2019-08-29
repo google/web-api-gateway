@@ -19,7 +19,6 @@
     <input type="hidden" name="ServiceName" value="{{.Service.ServiceName}}" />
     <input type="hidden" name="PreviousAccountName" 
     value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
-    <p><font color="red">{{.Flash}}</font></p>
     <div class="form-group">
       <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
       Account Name</label>
@@ -27,7 +26,7 @@
         <p><small>Editing a name will break existing connections. Only do this if you're really ok with fix everything!</small></p>{{end}}{{end}}
       <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="text"{{end}} 
        name="AccountName" value="{{if .Account}}{{.Account.AccountName}}{{end}}" 
-       pattern="^[-a-z0-9]+$" required />
+       pattern="^[-a-z0-9]+$" title="Name should only consist of lowercase letters, numbers and hyphens." required />
     </div>
     <div class="form-group">
       <label for="ServiceURL" {{if and .Account .Url}}hidden{{end}}>

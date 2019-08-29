@@ -33,7 +33,7 @@
       <li><a href="/portal/users">Authorized UI Users</a></li>
     </ul>
 
-    {{if .Profile}}
+  {{if .Profile}}
     <form method="post" action="/logout" class="navbar-form navbar-right">
       <button class="btn btn-default">Log out</button>
     </form>
@@ -46,15 +46,19 @@
   </div>
 </div>
 <div class="container">
+  <p><font color="red">{{.Flash}}</font></p>
   {{template "body" .Data}}
 </div>
-<div class="container">
   {{else}}
-  <div class="navbar-text navbar-right">
-    <a href="/login">Log in</a>
+    <div class="navbar-text navbar-right">
+      <a href="/login">Log in</a>
+    </div>
+  </div>
+</div>
+  <div class="container">
+    <p><font color="red">{{.Flash}}</font></p>
   </div>
   {{end}}
-</div>
 
 </body>
 </html>

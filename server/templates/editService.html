@@ -18,13 +18,12 @@
   <form action="/portal/saveservice" method="post">
     <input type="hidden" name="PreviousServiceName" 
      value="{{if .Service}}{{.Service.ServiceName}}{{end}}" />
-    <p><font color="red">{{.Flash}}</font></p>
     <div class="form-group">
       <label for="ServiceName">Service Name</label>
       {{if .Service}}<p><small>Editing a name will break existing connections. Only do this if you're really ok with fix everything!</small></p>{{end}}
       <input class="form-control" type="text" name="ServiceName" 
        value="{{if .Service}}{{.Service.ServiceName}}{{end}}" pattern="^[-a-z0-9]+$" 
-       required />
+       title="Name should only consist of lowercase letters, numbers and hyphens." required />
     </div>
     <div class="form-group">
       <label for="ClientID">Client ID</label>

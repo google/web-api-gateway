@@ -67,7 +67,6 @@ type data struct {
 	Service *config.Service
 	Account *config.Account
 	Url     string
-	Flash   string
 }
 
 type profile struct {
@@ -181,6 +180,11 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) *appError {
 		if err := session.Save(r, w); err != nil {
 			return appErrorf(err, "could not save session: %v", err)
 		}
+	} else {
+		session.AddFlash("Sorry you are not authorized, please contact IT =)")
+		if err := session.Save(r, w); err != nil {
+			return appErrorf(err, "could not save session: %v", err)
+		}
 	}
 
 	http.Redirect(w, r, "/portal/", http.StatusFound)
@@ -221,7 +225,7 @@ func editAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 func addServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
-	return editServiceTmpl.Execute(w, r, data{nil, nil, "", flashFromSession(w, r)})
+	return editServiceTmpl.Execute(w, r, data{nil, nil, ""})
 }
 
 func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -245,7 +249,7 @@ func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := setStateToSession(w, r, state); err != nil {
 		return err
 	}
-	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl, flashFromSession(w, r)})
+	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl})
 }
 
 func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -326,13 +330,13 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	u.ServiceURL(r.FormValue("ServiceURL"))
 
-	state, ok := session.Values[stateSessionKey].(string)
-	if !ok {
-		return &appError{Message: "could not get state"}
-	}
-	log.Printf("getting state: %s", state)
-	code := r.FormValue("Code")
-	if code != "" {
+	s := session.Values[stateSessionKey]
+	if s != nil {
+		state, ok := s.(string)
+		if !ok {
+			return &appError{Message: "could not get state"}
+		}
+		code := r.FormValue("Code")
 		decode, err := config.VerifyState(code, state)
 		if err != nil {
 			session.AddFlash("Oauth failed, please try again.")
@@ -348,13 +352,14 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 					http.StatusFound)
 				return nil
 			}
+			// switch to this
+			// if err := u.OauthCreds(decode); err != nil {
+			//  return appErrorf(err, "could not update Oauth credentials: %v", err)
+			// }
+			u.OauthCreds(decode)
 		}
-		// switch to this
-		// if err := u.OauthCreds(decode); err != nil {
-		//  return appErrorf(err, "could not update Oauth credentials: %v", err)
-		// }
-		u.OauthCreds(decode)
 	}
+
 	if r.FormValue("GenerateNewCreds") == "on" || previousAccount == "" {
 		if err := u.ClientCreds(); err != nil {
 			return appErrorf(err, "could not generate client credentails: %v", err)
@@ -425,14 +430,14 @@ func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) *app
 		return appErrorf(err, "could not find service: %v", err)
 	}
 	if tmpl == editServiceTmpl {
-		return tmpl.Execute(w, r, data{service, nil, "", flashFromSession(w, r)})
+		return tmpl.Execute(w, r, data{service, nil, ""})
 	} else {
 		accountStr := mux.Vars(r)["account"]
 		_, account, err := accountFromRequest(accountStr, service)
 		if err != nil {
 			return appErrorf(err, "could not find account: %v", err)
 		}
-		return tmpl.Execute(w, r, data{service, account, "", flashFromSession(w, r)})
+		return tmpl.Execute(w, r, data{service, account, ""})
 	}
 }
 
@@ -486,7 +491,7 @@ func reauthorizeAccountHandler(w http.ResponseWriter, r *http.Request) *appError
 	if err := setStateToSession(w, r, state); err != nil {
 		return err
 	}
-	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, flashFromSession(w, r)})
+	return editAccountTmpl.Execute(w, r, data{service, account, authUrl})
 }
 
 func listUserHandler(w http.ResponseWriter, r *http.Request) *appError {
