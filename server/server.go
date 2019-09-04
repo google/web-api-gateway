@@ -69,7 +69,7 @@ func main() {
 	log.Printf("Starting web-api-gateway, version %s\n", version)
 
 	m := UIHandlers()
-	m.Handle("/service/", createConfigHandler())
+	m.PathPrefix("/service/").Handler(createConfigHandler())
 	m.HandleFunc("/authToken/", authTokenPage)
 	m.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
