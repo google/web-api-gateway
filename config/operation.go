@@ -106,6 +106,7 @@ type ServiceUpdater struct {
 	previousName                                    string
 	name, clientID, clientSecret, authURL, tokenURL *string
 	scopes                                          *[]string
+	domains                                         *[]*Domain
 	save                                            func() error
 	c                                               *Config
 }
@@ -146,6 +147,9 @@ func (u *ServiceUpdater) Commit() error {
 	}
 	if u.scopes != nil {
 		s.OauthServiceCreds.Scopes = *u.scopes
+	}
+	if u.domains != nil {
+		s.Domains = u.domains
 	}
 
 	return u.save()
@@ -219,6 +223,11 @@ func (u *ServiceUpdater) Scopes(scopes string) error {
 	}
 
 	u.scopes = &output
+	return nil
+}
+
+func (u *ServiceUpdater) Domains(domains []*Domain) error {
+	u.domains = &domains
 	return nil
 }
 

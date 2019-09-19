@@ -38,6 +38,14 @@ func ReadWriteConfig() (c *Config, save func() error, err error) {
 	return readWriteConfig(*configFileName)
 }
 
+func ReadTemplate() *Template {
+	c, err := readConfig(*configFileName)
+	if err != nil {
+		return nil
+	}
+	return &c.Template
+}
+
 func readConfig(name string) (*Config, error) {
 	b, err := ioutil.ReadFile(name)
 	if err != nil {

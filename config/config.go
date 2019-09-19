@@ -26,6 +26,7 @@ type Config struct {
 	Url      string
 	Users    map[string]bool // user whitelist
 	Services []*Service
+	Template Template
 }
 
 // Service represents a distinct endpoint that can contain multiple account.
@@ -33,6 +34,7 @@ type Service struct {
 	ServiceName       string // name for reference when setting up an account
 	OauthServiceCreds *OauthServiceCreds
 	Accounts          []*Account
+	Domains           *[]*Domain
 }
 
 // OauthServiceCreds stores the information to get authorized to connect new
@@ -58,4 +60,21 @@ type Account struct {
 type ClientCreds struct {
 	Protocol   string // rule for encrypting messages
 	PrivateKey string // key for encrypting messages
+}
+
+type Template struct {
+	Engines []*Engine
+}
+
+type Engine struct {
+	EngineName string
+	AuthURL    string
+	TokenURL   string
+	Scopes     string
+	Domains    []*Domain
+}
+
+type Domain struct {
+	DomainName string
+	ServiceURL string
 }
