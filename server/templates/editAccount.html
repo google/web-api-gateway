@@ -19,6 +19,17 @@
     <input type="hidden" name="ServiceName" value="{{.Service.ServiceName}}" />
     <input type="hidden" name="PreviousAccountName" 
     value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
+    {{if .Url}}{{if not .Account}}
+    <div class="form-group">
+      <select name="Domain" required>
+        <option value="" disabled selected>Select Domain Endpoint</option>
+        {{range .Service.Domains}}
+        <option value="{{.ServiceURL}}">{{.DomainName}}</option>
+        {{end}}
+      </select>
+    </div>
+    {{end}}{{end}}
+
     <div class="form-group">
       <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
       Account Name</label>
@@ -27,13 +38,6 @@
       <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="text"{{end}} 
        name="AccountName" value="{{if .Account}}{{.Account.AccountName}}{{end}}" 
        pattern="^[-a-z0-9]+$" title="Name should only consist of lowercase letters, numbers and hyphens." required />
-    </div>
-    <div class="form-group">
-      <label for="ServiceURL" {{if and .Account .Url}}hidden{{end}}>
-      Service URL</label>
-      <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="url"{{end}} 
-       name="ServiceURL" value="{{if .Account}}{{.Account.ServiceURL}}{{end}}" 
-       pattern="https://.*" title="Service URL should start with https." required />
     </div>
     {{if .Account}}
       {{if not .Url}}

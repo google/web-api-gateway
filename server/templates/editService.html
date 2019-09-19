@@ -18,6 +18,18 @@
   <form action="/portal/saveservice" method="post">
     <input type="hidden" name="PreviousServiceName" 
      value="{{if .Service}}{{.Service.ServiceName}}{{end}}" />
+     {{if .Service}}
+     {{else}}
+     <div class="form-group">
+      <select name="Engine" required>
+        <option value="" disabled selected>Select Engine</option>
+        {{range .Template.Engines}}
+        <option value="{{.EngineName}}">{{.EngineName}}</option>
+        {{end}}
+      </select>
+     </div>
+     {{end}}
+
     <div class="form-group">
       <label for="ServiceName">Service Name</label>
       {{if .Service}}<p><small>Editing a name will break existing connections. Only do this if you're really ok with fix everything!</small></p>{{end}}
@@ -34,23 +46,6 @@
       <label for="ClientSecret">Client Secret</label>
       <input class="form-control" type="password" name="ClientSecret" 
        value="{{if .Service}}{{.Service.OauthServiceCreds.ClientSecret}}{{end}}" required />
-    </div>
-    <div class="form-group">
-      <label for="AuthURL">Auth URL</label>
-      <input class="form-control" type="url" name="AuthURL" 
-       value="{{if .Service}}{{.Service.OauthServiceCreds.AuthURL}}{{end}}" pattern="https://.*" 
-       title="Auth URL should start with https." required />
-    </div>
-    <div class="form-group">
-      <label for="TokenURL">Token URL</label>
-      <input class="form-control" type="url" name="TokenURL" 
-      value="{{if .Service}}{{.Service.OauthServiceCreds.TokenURL}}{{end}}" pattern="https://.*" 
-      title="Token URL should start with https." required />
-    </div>
-    <div class="form-group">
-      <label for="Scopes">Scopes</label>
-      <input class="form-control" type="text" name="Scopes" 
-       value="{{if .Service}}{{range .Service.OauthServiceCreds.Scopes}}{{.}},{{end}}{{end}}" required />
     </div>
     <div class="form-group">
       <button type="submit">Save</button>

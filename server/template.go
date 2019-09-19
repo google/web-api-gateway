@@ -56,7 +56,7 @@ func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data in
 	d := struct {
 		Data    interface{}
 		Profile *profile
-		Flash string
+		Flash   string
 	}{
 		Data: data,
 	}

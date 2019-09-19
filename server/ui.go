@@ -17,9 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -52,6 +55,7 @@ var (
 	editAccountTmpl = parseTemplate(*templatesFolder + "editAccount.html")
 	keyTmpl         = parseTemplate(*templatesFolder + "key.html")
 	userTmpl        = parseTemplate(*templatesFolder + "user.html")
+	uploadTmpl      = parseTemplate(*templatesFolder + "upload.html")
 )
 
 var oauthConf *oauth2.Config = &oauth2.Config{
@@ -64,9 +68,10 @@ var oauthConf *oauth2.Config = &oauth2.Config{
 var cookieStore = createStore()
 
 type data struct {
-	Service *config.Service
-	Account *config.Account
-	Url     string
+	Service  *config.Service
+	Account  *config.Account
+	Url      string
+	Template *config.Template
 }
 
 type profile struct {
@@ -77,6 +82,7 @@ type profile struct {
 func init() {
 	gob.Register(&oauth2.Token{})
 	gob.Register(&profile{})
+
 }
 
 func UIHandlers() *mux.Router {
@@ -104,6 +110,9 @@ func UIHandlers() *mux.Router {
 
 	r.Methods("GET").Path("/portal/users").Handler(appHandler(listUserHandler))
 	r.Methods("POST").Path("/portal/adduser").Handler(appHandler(addUserHandler))
+
+	r.Methods("GET").Path("/portal/upload").Handler(appHandler(uploadHandler))
+	r.Methods("POST").Path("/portal/mapping").Handler(appHandler(mappingHandler))
 
 	return r
 }
@@ -225,7 +234,11 @@ func editAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 func addServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
-	return editServiceTmpl.Execute(w, r, data{nil, nil, ""})
+	tmp := config.ReadTemplate()
+	if tmp == nil || len(tmp.Engines) == 0 {
+		http.Redirect(w, r, "/portal/upload", http.StatusFound)
+	}
+	return editServiceTmpl.Execute(w, r, data{nil, nil, "", tmp})
 }
 
 func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -249,7 +262,7 @@ func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := setStateToSession(w, r, state); err != nil {
 		return err
 	}
-	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl})
+	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl, nil})
 }
 
 func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -280,9 +293,17 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	u.ClientID(r.FormValue("ClientID"))
 	u.ClientSecret(r.FormValue("ClientSecret"))
-	u.AuthURL(r.FormValue("AuthURL"))
-	u.TokenURL(r.FormValue("TokenURL"))
-	u.Scopes(r.FormValue("Scopes"))
+
+	engineName := r.FormValue("Engine")
+	engine, err := engineFromRequest(engineName)
+	if err != nil {
+		return appErrorf(err, "could not find engine", err)
+	}
+
+	u.AuthURL(engine.AuthURL)
+	u.TokenURL(engine.TokenURL)
+	u.Scopes(engine.Scopes)
+	u.Domains(engine.Domains)
 
 	if err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
@@ -328,7 +349,7 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		}
 	}
 
-	u.ServiceURL(r.FormValue("ServiceURL"))
+	u.ServiceURL(r.FormValue("Domain"))
 
 	s := session.Values[stateSessionKey]
 	if s != nil {
@@ -337,27 +358,29 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 			return &appError{Message: "could not get state"}
 		}
 		code := r.FormValue("Code")
-		decode, err := config.VerifyState(code, state)
-		if err != nil {
-			session.AddFlash("Oauth failed, please try again.")
-			if err := session.Save(r, w); err != nil {
-				return appErrorf(err, "could not save session: %v", err)
-			}
-			if previousAccount == "" {
-				http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
-				return nil
-			} else {
-				http.Redirect(w, r,
-					fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
-					http.StatusFound)
-				return nil
-			}
-			// switch to this
-			// if err := u.OauthCreds(decode); err != nil {
-			//  return appErrorf(err, "could not update Oauth credentials: %v", err)
-			// }
-			u.OauthCreds(decode)
-		}
+		decode, _ := config.VerifyState(code, state)
+		// if err != nil {
+		// 	session.AddFlash("Oauth failed, please try again.")
+		// 	if err := session.Save(r, w); err != nil {
+		// 		return appErrorf(err, "could not save session: %v", err)
+		// 	}
+		// 	if previousAccount == "" {
+		// 		http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
+		// 		return nil
+		// 	} else {
+		// 		http.Redirect(w, r,
+		// 			fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
+		// 			http.StatusFound)
+		// 		return nil
+		// 	}
+		// }
+
+		// switch to this
+		// if err := u.OauthCreds(decode); err != nil {
+		//  return appErrorf(err, "could not update Oauth credentials: %v", err)
+		// }
+		u.OauthCreds(decode)
+
 	}
 
 	if r.FormValue("GenerateNewCreds") == "on" || previousAccount == "" {
@@ -430,14 +453,14 @@ func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) *app
 		return appErrorf(err, "could not find service: %v", err)
 	}
 	if tmpl == editServiceTmpl {
-		return tmpl.Execute(w, r, data{service, nil, ""})
+		return tmpl.Execute(w, r, data{service, nil, "", nil})
 	} else {
 		accountStr := mux.Vars(r)["account"]
 		_, account, err := accountFromRequest(accountStr, service)
 		if err != nil {
 			return appErrorf(err, "could not find account: %v", err)
 		}
-		return tmpl.Execute(w, r, data{service, account, ""})
+		return tmpl.Execute(w, r, data{service, account, "", nil})
 	}
 }
 
@@ -491,7 +514,7 @@ func reauthorizeAccountHandler(w http.ResponseWriter, r *http.Request) *appError
 	if err := setStateToSession(w, r, state); err != nil {
 		return err
 	}
-	return editAccountTmpl.Execute(w, r, data{service, account, authUrl})
+	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, nil})
 }
 
 func listUserHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -511,6 +534,43 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
+func uploadHandler(w http.ResponseWriter, r *http.Request) *appError {
+	return uploadTmpl.Execute(w, r, nil)
+}
+
+func mappingHandler(w http.ResponseWriter, r *http.Request) *appError {
+	f, _, err := r.FormFile("Mapping")
+	defer f.Close()
+	if err == http.ErrMissingFile {
+		return appErrorf(err, "could not upload file: %v", err)
+	}
+	if err != nil {
+		return appErrorf(err, "could not upload file: %v", err)
+	}
+	var buf bytes.Buffer
+	var t config.Template
+	if _, err := io.Copy(&buf, f); err != nil {
+		return appErrorf(err, "could not read file: %v", err)
+	}
+	err = json.Unmarshal(buf.Bytes(), &t)
+	if err != nil {
+		return appErrorf(err, "could not parse file: %v", err)
+	}
+
+	c, save, err := config.ReadWriteConfig()
+	if err != nil {
+		return appErrorf(err, "could not read config file", err)
+	}
+
+	c.Template = t
+	if err = save(); err != nil {
+		return appErrorf(err, "could not save to config file", err)
+	}
+
+	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
+}
+
 func serviceFromRequest(serviceStr string, c *config.Config) (int, *config.Service, error) {
 	for i, s := range c.Services {
 		if serviceStr == s.ServiceName {
@@ -527,6 +587,15 @@ func accountFromRequest(accountStr string, s *config.Service) (int, *config.Acco
 		}
 	}
 	return -1, nil, fmt.Errorf("No such account: %s", accountStr)
+}
+
+func engineFromRequest(engineStr string) (*config.Engine, error) {
+	for _, e := range config.ReadTemplate().Engines {
+		if engineStr == e.EngineName {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("Nu such engine: %s", engineStr)
 }
 
 func stripProfile(p *plus.Person) *profile {
