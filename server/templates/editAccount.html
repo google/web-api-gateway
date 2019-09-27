@@ -1,0 +1,64 @@
+{{/*
+  Copyright 2019 Google LLC
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+  
+      https://www.apache.org/licenses/LICENSE-2.0
+  
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/}}
+<h3>{{if and .Account .Url}}Reauthorize{{else if .Url}}Add{{else}}Edit{{end}} Account</h3>
+
+  <form action="/portal/saveaccount" method="post">
+    <input type="hidden" name="ServiceName" value="{{.Service.ServiceName}}" />
+    <input type="hidden" name="PreviousAccountName" 
+    value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
+    {{if .Url}}{{if not .Account}}
+    <div class="form-group">
+      <select name="Domain" required>
+        <option value="" disabled selected>Select Domain Endpoint</option>
+        {{range .Service.Domains}}
+        <option value="{{.ServiceURL}}">{{.DomainName}}</option>
+        {{end}}
+      </select>
+    </div>
+    {{end}}{{end}}
+
+    <div class="form-group">
+      <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
+      Account Name</label>
+      {{if .Account}}{{if not .Url}}
+        <p><small>Editing a name will break existing connections. Only do this if you're really ok with fix everything!</small></p>{{end}}{{end}}
+      <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="text"{{end}} 
+       name="AccountName" value="{{if .Account}}{{.Account.AccountName}}{{end}}" 
+       pattern="^[-a-z0-9]+$" title="Name should only consist of lowercase letters, numbers and hyphens." required />
+    </div>
+    {{if .Account}}
+      {{if not .Url}}
+      <div class="form-group">
+        <label for="GenerateNewCreds">Generate New Access Credentials</label>
+        <input type="checkbox" name="GenerateNewCreds" title="Generate new access credentials will break existing connections. Only do this if you're really ok with fix everything!" />
+      </div>
+      {{end}}
+    {{end}}
+    {{if .Url}}
+    <div class="form-group">
+      <label> Please go to this url and authorize the application:</label>
+      <a href="{{.Url}}" target="_blank" >Authenticate URL</a>
+    </div>
+    <div class="form-group">
+      <label for="Code">Enter the code here</label>
+      <input class="form-control" type="text" name="Code" required />
+    </div>
+    {{end}}
+    <div class="form-group">
+      <button type="submit">Save</button>
+    </div>
+  </form>
+
