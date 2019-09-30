@@ -295,15 +295,16 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	u.ClientSecret(r.FormValue("ClientSecret"))
 
 	engineName := r.FormValue("Engine")
-	engine, err := engineFromRequest(engineName)
-	if err != nil {
-		return appErrorf(err, "could not find engine", err)
+	if engineName != "" {
+		engine, err := engineFromRequest(engineName)
+		if err != nil {
+			return appErrorf(err, "could not find engine", err)
+		}
+		u.AuthURL(engine.AuthURL)
+		u.TokenURL(engine.TokenURL)
+		u.Scopes(engine.Scopes)
+		u.Domains(engine.Domains)
 	}
-
-	u.AuthURL(engine.AuthURL)
-	u.TokenURL(engine.TokenURL)
-	u.Scopes(engine.Scopes)
-	u.Domains(engine.Domains)
 
 	if err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
@@ -349,7 +350,10 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		}
 	}
 
-	u.ServiceURL(r.FormValue("Domain"))
+	domainName := r.FormValue("Domain")
+	if domainName != "" {
+		u.ServiceURL(domainName)
+	}
 
 	s := session.Values[stateSessionKey]
 	if s != nil {
@@ -374,9 +378,9 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 				return nil
 			}
 		}
-		
+
 		if err := u.OauthCreds(decode); err != nil {
-		 return appErrorf(err, "could not update Oauth credentials: %v", err)
+			return appErrorf(err, "could not update Oauth credentials: %v", err)
 		}
 	}
 
