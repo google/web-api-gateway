@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -234,7 +234,11 @@ func editAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 func addServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
-	tmp := config.ReadTemplate()
+	tmp, err := config.ReadTemplate()
+	if err != nil {
+		return appErrorf(err, "could not read template: %v", err)
+	}
+
 	if tmp == nil || len(tmp.Engines) == 0 {
 		http.Redirect(w, r, "/portal/upload", http.StatusFound)
 	}
@@ -591,12 +595,17 @@ func accountFromRequest(accountStr string, s *config.Service) (int, *config.Acco
 }
 
 func engineFromRequest(engineStr string) (*config.Engine, error) {
-	for _, e := range config.ReadTemplate().Engines {
+	tmp, err := config.ReadTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("Could not read template")
+	}
+
+	for _, e := range tmp.Engines {
 		if engineStr == e.EngineName {
 			return e, nil
 		}
 	}
-	return nil, fmt.Errorf("Nu such engine: %s", engineStr)
+	return nil, fmt.Errorf("No such engine: %s", engineStr)
 }
 
 func stripProfile(p *plus.Person) *profile {

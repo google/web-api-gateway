@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,12 +38,12 @@ func ReadWriteConfig() (c *Config, save func() error, err error) {
 	return readWriteConfig(*configFileName)
 }
 
-func ReadTemplate() *Template {
+func ReadTemplate() (*Template, error) {
 	c, err := readConfig(*configFileName)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return &c.Template
+	return &c.Template, nil
 }
 
 func readConfig(name string) (*Config, error) {

@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -164,7 +164,7 @@ func (u *ServiceUpdater) Name(name string) error {
 	if name != u.previousName {
 		for _, other := range u.c.Services {
 			if name == other.ServiceName {
-				return errors.New("That service name is already in use.  Choose another.")
+				return fmt.Errorf("The service name '%s' is already in use.  Choose another.", name)
 			}
 		}
 	}
@@ -302,7 +302,7 @@ func (u *AccountUpdater) Name(name string) error {
 	if name != u.previousName {
 		for _, other := range u.C.Services[u.S].Accounts {
 			if name == other.AccountName {
-				return errors.New("That account name is already in use.  Choose another.")
+				return fmt.Errorf("The account name '%s' is already in use.  Choose another.", name)
 			}
 		}
 	}
@@ -414,14 +414,19 @@ func VerifyState(code string, state string) (string, error) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+var rxName = regexp.MustCompile("^[-a-z0-9]+$")
+
+var rxEmail = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+" +
+	"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +
+	"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+
 func verifyName(rawText string) error {
 	if rawText == "" {
 		return errors.New("Name cannot be empty.")
 	}
 
-	match, _ := regexp.MatchString("^[-a-z0-9]+$", rawText)
-	if !match {
-		return errors.New("That name contains invalid characters.")
+	if !rxName.MatchString(rawText) {
+		return fmt.Errorf("The name '%s' contains invalid characters.", rawText)
 	}
 	return nil
 }
@@ -439,12 +444,9 @@ func verifyUrl(rawText string) (string, error) {
 }
 
 func verifyEmail(rawText string) (string, error) {
-	rxEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+" +
-		"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +
-		"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 	email := strings.TrimSpace(rawText)
 	if len(email) > 254 || !rxEmail.MatchString(email) {
-		return "", errors.New("Email address is not valid.")
+		return "", fmt.Errorf("Email address '%s' is not valid.", email)
 	}
 	return email, nil
 }
