@@ -56,8 +56,8 @@ In your cloud provider, your VM must have a reserved static external IP address.
 This may either be an option when creating/editing your VM, or it may be a
 separate option after creation.
 
-You also must set any firewall settings to expose port 443. If you are using
-Let’s Encrypt to provide a certificate for https, you must also expose port 80.
+You also must set any firewall settings to expose port 443 to HTTPS requests. If you are using
+Let’s Encrypt to provide a certificate for https, you must also expose port 80 to HTTP requests.
 
 ## 5. Domain Name
 
