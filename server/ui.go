@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -49,7 +49,6 @@ const (
 )
 
 var (
-	baseTmpl        = parseTemplate("")
 	listTmpl        = parseTemplate(*templatesFolder + "list.html")
 	editServiceTmpl = parseTemplate(*templatesFolder + "editService.html")
 	editAccountTmpl = parseTemplate(*templatesFolder + "editAccount.html")
@@ -88,7 +87,7 @@ func init() {
 func UIHandlers() *mux.Router {
 	r := mux.NewRouter()
 
-	r.Methods("GET").Path("/").Handler(appHandler(baseHandler))
+	r.Handle("/", http.RedirectHandler("/portal/", http.StatusFound))
 
 	r.Methods("GET").Path("/portal/").Handler(appHandler(listHandler))
 	r.Methods("GET").Path("/portal/addservice").Handler(appHandler(addServiceHandler))
@@ -213,10 +212,6 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-func baseHandler(w http.ResponseWriter, r *http.Request) *appError {
-	return baseTmpl.Execute(w, r, nil)
-}
-
 func listHandler(w http.ResponseWriter, r *http.Request) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
@@ -234,7 +229,11 @@ func editAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 func addServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
-	tmp := config.ReadTemplate()
+	tmp, err := config.ReadTemplate()
+	if err != nil {
+		return appErrorf(err, "could not read template: %v", err)
+	}
+
 	if tmp == nil || len(tmp.Engines) == 0 {
 		http.Redirect(w, r, "/portal/upload", http.StatusFound)
 	}
@@ -295,15 +294,16 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	u.ClientSecret(r.FormValue("ClientSecret"))
 
 	engineName := r.FormValue("Engine")
-	engine, err := engineFromRequest(engineName)
-	if err != nil {
-		return appErrorf(err, "could not find engine", err)
+	if engineName != "" {
+		engine, err := engineFromRequest(engineName)
+		if err != nil {
+			return appErrorf(err, "could not find engine", err)
+		}
+		u.AuthURL(engine.AuthURL)
+		u.TokenURL(engine.TokenURL)
+		u.Scopes(engine.Scopes)
+		u.Domains(engine.Domains)
 	}
-
-	u.AuthURL(engine.AuthURL)
-	u.TokenURL(engine.TokenURL)
-	u.Scopes(engine.Scopes)
-	u.Domains(engine.Domains)
 
 	if err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
@@ -349,7 +349,10 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		}
 	}
 
-	u.ServiceURL(r.FormValue("Domain"))
+	domainName := r.FormValue("Domain")
+	if domainName != "" {
+		u.ServiceURL(domainName)
+	}
 
 	s := session.Values[stateSessionKey]
 	if s != nil {
@@ -358,29 +361,26 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 			return &appError{Message: "could not get state"}
 		}
 		code := r.FormValue("Code")
-		decode, _ := config.VerifyState(code, state)
-		// if err != nil {
-		// 	session.AddFlash("Oauth failed, please try again.")
-		// 	if err := session.Save(r, w); err != nil {
-		// 		return appErrorf(err, "could not save session: %v", err)
-		// 	}
-		// 	if previousAccount == "" {
-		// 		http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
-		// 		return nil
-		// 	} else {
-		// 		http.Redirect(w, r,
-		// 			fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
-		// 			http.StatusFound)
-		// 		return nil
-		// 	}
-		// }
+		decode, err := config.VerifyState(code, state)
+		if err != nil {
+			session.AddFlash("Oauth failed, please try again.")
+			if err := session.Save(r, w); err != nil {
+				return appErrorf(err, "could not save session: %v", err)
+			}
+			if previousAccount == "" {
+				http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
+				return nil
+			} else {
+				http.Redirect(w, r,
+					fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
+					http.StatusFound)
+				return nil
+			}
+		}
 
-		// switch to this
-		// if err := u.OauthCreds(decode); err != nil {
-		//  return appErrorf(err, "could not update Oauth credentials: %v", err)
-		// }
-		u.OauthCreds(decode)
-
+		if err := u.OauthCreds(decode); err != nil {
+			return appErrorf(err, "could not update Oauth credentials: %v", err)
+		}
 	}
 
 	if r.FormValue("GenerateNewCreds") == "on" || previousAccount == "" {
@@ -392,6 +392,14 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
 	}
+
+	// Mux.Handle("/service/", createConfigHandler())
+	Mux.HandleFunc("/service/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Incoming Request from add account %s %s %s", r.RemoteAddr, r.Method, r.URL)
+		createConfigHandler()
+		http.DefaultServeMux.ServeHTTP(w, r)
+	})
+
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
 }
@@ -437,6 +445,13 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := config.RemoveAccount(i, sIdx); err != nil {
 		return appErrorf(err, "could not delete account: %v", err)
 	}
+
+	Mux.HandleFunc("/service/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Incoming Request from remove account %s %s %s", r.RemoteAddr, r.Method, r.URL)
+		createConfigHandler()
+		http.DefaultServeMux.ServeHTTP(w, r)
+	})
+
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
 }
@@ -590,12 +605,17 @@ func accountFromRequest(accountStr string, s *config.Service) (int, *config.Acco
 }
 
 func engineFromRequest(engineStr string) (*config.Engine, error) {
-	for _, e := range config.ReadTemplate().Engines {
+	tmp, err := config.ReadTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("Could not read template")
+	}
+
+	for _, e := range tmp.Engines {
 		if engineStr == e.EngineName {
 			return e, nil
 		}
 	}
-	return nil, fmt.Errorf("Nu such engine: %s", engineStr)
+	return nil, fmt.Errorf("No such engine: %s", engineStr)
 }
 
 func stripProfile(p *plus.Person) *profile {

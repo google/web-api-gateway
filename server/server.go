@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -61,6 +61,7 @@ var addr *string = flag.String(
 	":443",
 	"This is the address:port which the server listens to.",
 )
+var Mux *http.ServeMux = http.NewServeMux()
 
 func main() {
 	flag.Parse()
@@ -75,8 +76,8 @@ func main() {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
 	})
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// mux := http.NewServeMux()
+	Mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
 		m.ServeHTTP(w, r)
 	})
@@ -91,7 +92,7 @@ func main() {
 		TLSConfig: &tls.Config{
 			GetCertificate: cr.GetCertificateFunc(),
 		},
-		Handler: mux,
+		Handler: Mux,
 	}
 	log.Fatal(server.ListenAndServeTLS("", ""))
 }
@@ -159,6 +160,9 @@ func createConfigHandler() http.Handler {
 		log.Printf("Error reading config file: %s", err)
 		return ErrorReadingConfig
 	}
+
+	log.Println("Reading config here:")
+	log.Println(c)
 
 	mux := http.NewServeMux()
 	for _, service := range c.Services {
