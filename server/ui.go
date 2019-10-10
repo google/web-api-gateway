@@ -421,7 +421,7 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return appErrorf(err, "could not add handler for service: %s, account: %s, error: %v",
 			u.C.Services[u.S].ServiceName, a.AccountName, err)
 	}
-	H.HandleFunc(path, handler)
+	ServerHandlers.HandleFunc(path, handler)
 
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
@@ -471,7 +471,7 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	// disable handler
 	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
-	H[basePath].Enabled = false
+	ServerHandlers[basePath].Enabled = false
 
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil

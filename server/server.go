@@ -69,7 +69,7 @@ type Handler struct {
 
 type Handlers map[string]*Handler
 
-var H = Handlers{}
+var ServerHandlers Handlers
 var muxer *http.ServeMux
 
 func main() {
@@ -78,14 +78,15 @@ func main() {
 	log.Println("Reading config file...")
 	log.Printf("Starting web-api-gateway, version %s\n", version)
 
+	ServerHandlers = Handlers{}
 	muxer = http.NewServeMux()
-	H.HandleFunc("/authToken/", authTokenPage)
-	H.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+	ServerHandlers.HandleFunc("/authToken/", authTokenPage)
+	ServerHandlers.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
 	})
 
 	errHandler := createConfigHandler()
-	H.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	ServerHandlers.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if errHandler != nil {
 			errHandler.ServeHTTP(w, r)
 		}
@@ -207,7 +208,7 @@ func createConfigHandler() http.Handler {
 					err)
 				return ErrorReadingConfig
 			}
-			H.HandleFunc(path, handler)
+			ServerHandlers.HandleFunc(path, handler)
 		}
 	}
 
