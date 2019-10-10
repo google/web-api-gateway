@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ type Service struct {
 	ServiceName       string // name for reference when setting up an account
 	OauthServiceCreds *OauthServiceCreds
 	Accounts          []*Account
-	Domains           *[]*Domain
+	EngineName        string
 }
 
 // OauthServiceCreds stores the information to get authorized to connect new

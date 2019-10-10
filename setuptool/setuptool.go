@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -51,18 +51,17 @@ func main() {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 type commiter interface {
-	Commit() error
+	Commit() (interface{}, error)
 }
 
 func commit(t *term, c commiter) {
 	fmt.Println("Saving...")
 
 	for {
-		err := c.Commit()
+		_, err := c.Commit()
 		if err == nil {
 			fmt.Println("Save successful!")
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-			// restart should not be neccessary
 			fmt.Println("Remember to restart the server.")
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 			return
@@ -81,12 +80,6 @@ func commit(t *term, c commiter) {
 func editUrl(t *term) {
 	userInput(t, "Enter the Web Api Gateway Url> ", config.SetEndpointUrl)
 }
-
-// ?
-// type serviceEdit struct {
-// 	prompt string
-// 	f      func(*config.ServiceUpdater, string) error
-// }
 
 func ServiceName(u *config.ServiceUpdater, t *term) {
 	userInput(t, "Choose a name (only use lowercase letters, numbers, and dashes)> ", u.Name)
@@ -136,9 +129,8 @@ func AccountOauthCreds(u *config.AccountUpdater, t *term) bool {
 		fmt.Printf("Enter the code here> ")
 		encodedAuthCode := t.readSimpleString()
 		decodedToken, err := config.VerifyState(encodedAuthCode, state)
-		// switch to err != nil
-		// if err != nil {
-		if decodedToken == "" {
+
+		if err != nil {
 			fmt.Println(err)
 			continue
 		}

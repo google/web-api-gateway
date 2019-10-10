@@ -61,7 +61,16 @@ var addr *string = flag.String(
 	":443",
 	"This is the address:port which the server listens to.",
 )
-var Mux *http.ServeMux = http.NewServeMux()
+
+type Handler struct {
+	http.HandlerFunc
+	Enabled bool
+}
+
+type Handlers map[string]*Handler
+
+var H = Handlers{}
+var muxer *http.ServeMux
 
 func main() {
 	flag.Parse()
@@ -69,17 +78,17 @@ func main() {
 	log.Println("Reading config file...")
 	log.Printf("Starting web-api-gateway, version %s\n", version)
 
-	m := UIHandlers()
-	m.PathPrefix("/service/").Handler(createConfigHandler())
-	m.HandleFunc("/authToken/", authTokenPage)
-	m.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+	muxer = http.NewServeMux()
+	H.HandleFunc("/authToken/", authTokenPage)
+	H.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
 	})
 
-	// mux := http.NewServeMux()
-	Mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
-		m.ServeHTTP(w, r)
+	errHandler := createConfigHandler()
+	H.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if errHandler != nil {
+			errHandler.ServeHTTP(w, r)
+		}
 	})
 
 	cr, err := NewCertificateReloader(*certFile, *keyFile)
@@ -92,9 +101,35 @@ func main() {
 		TLSConfig: &tls.Config{
 			GetCertificate: cr.GetCertificateFunc(),
 		},
-		Handler: Mux,
+		Handler: muxer,
 	}
 	log.Fatal(server.ListenAndServeTLS("", ""))
+}
+
+func (h Handlers) HandleFunc(pattern string, handler http.HandlerFunc) {
+	_, contain := h[pattern]
+	h[pattern] = &Handler{handler, true}
+	if !contain {
+		muxer.HandleFunc(pattern, h.ServeHTTP)
+	}
+}
+
+func (h Handlers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
+	path := r.URL.Path
+	spath := strings.Split(path, "/")
+	if len(spath) >= 6 {
+		idx := strings.Index(path, spath[5])
+		path = path[:idx]
+	}
+
+	if strings.HasPrefix(path, "/portal/") {
+		UIHandlers().ServeHTTP(w, r)
+	} else if handler, ok := h[path]; ok && handler.Enabled {
+		handler.ServeHTTP(w, r)
+	} else {
+		http.Error(w, "Not Found", http.StatusNotFound)
+	}
 }
 
 ///////////////////////////////////////////////
@@ -161,10 +196,6 @@ func createConfigHandler() http.Handler {
 		return ErrorReadingConfig
 	}
 
-	log.Println("Reading config here:")
-	log.Println(c)
-
-	mux := http.NewServeMux()
 	for _, service := range c.Services {
 		for _, account := range service.Accounts {
 			path, handler, err := createAccountHandler(c, service, account)
@@ -176,14 +207,14 @@ func createConfigHandler() http.Handler {
 					err)
 				return ErrorReadingConfig
 			}
-			mux.Handle(path, handler)
+			H.HandleFunc(path, handler)
 		}
 	}
 
-	return mux
+	return nil
 }
 
-func createAccountHandler(c *config.Config, service *config.Service, account *config.Account) (string, http.Handler, error) {
+func createAccountHandler(c *config.Config, service *config.Service, account *config.Account) (string, http.HandlerFunc, error) {
 	// TODO: we're assuming that service and account names are valid.  The editing tool validates this
 	// but it should be validated when loading too.
 	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
@@ -213,7 +244,7 @@ func createAccountHandler(c *config.Config, service *config.Service, account *co
 	return basePath, handler, nil
 }
 
-func wrapWithClientAuth(handler http.Handler, account *config.Account) (http.Handler, error) {
+func wrapWithClientAuth(handler http.Handler, account *config.Account) (http.HandlerFunc, error) {
 	// TODO TEST account.ClientCreds.Protocol and ensure it's what we're expecting here.
 
 	der, err := base64.StdEncoding.DecodeString(account.ClientCreds.PrivateKey)

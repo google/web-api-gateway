@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -103,15 +103,14 @@ func NewServiceUpdater(previousName string) (*ServiceUpdater, error) {
 }
 
 type ServiceUpdater struct {
-	previousName                                    string
-	name, clientID, clientSecret, authURL, tokenURL *string
-	scopes                                          *[]string
-	domains                                         *[]*Domain
-	save                                            func() error
-	c                                               *Config
+	previousName                                                string
+	name, clientID, clientSecret, authURL, tokenURL, engineName *string
+	scopes                                                      *[]string
+	save                                                        func() error
+	c                                                           *Config
 }
 
-func (u *ServiceUpdater) Commit() error {
+func (u *ServiceUpdater) Commit() (interface{}, error) {
 	var s *Service
 
 	if u.previousName == "" {
@@ -127,7 +126,7 @@ func (u *ServiceUpdater) Commit() error {
 		}
 	}
 	if s == nil {
-		return errors.New("Unable to find service, was its name changed while editing?")
+		return nil, errors.New("Unable to find service, was its name changed while editing?")
 	}
 
 	if u.name != nil {
@@ -148,11 +147,11 @@ func (u *ServiceUpdater) Commit() error {
 	if u.scopes != nil {
 		s.OauthServiceCreds.Scopes = *u.scopes
 	}
-	if u.domains != nil {
-		s.Domains = u.domains
+	if u.engineName != nil {
+		s.EngineName = *u.engineName
 	}
 
-	return u.save()
+	return s, u.save()
 }
 
 func (u *ServiceUpdater) Name(name string) error {
@@ -164,7 +163,7 @@ func (u *ServiceUpdater) Name(name string) error {
 	if name != u.previousName {
 		for _, other := range u.c.Services {
 			if name == other.ServiceName {
-				return errors.New("That service name is already in use.  Choose another.")
+				return fmt.Errorf("The service name '%s' is already in use.  Choose another.", name)
 			}
 		}
 	}
@@ -226,8 +225,8 @@ func (u *ServiceUpdater) Scopes(scopes string) error {
 	return nil
 }
 
-func (u *ServiceUpdater) Domains(domains []*Domain) error {
-	u.domains = &domains
+func (u *ServiceUpdater) EngineName(engineName string) error {
+	u.engineName = &engineName
 	return nil
 }
 
@@ -258,7 +257,7 @@ type AccountUpdater struct {
 	C                *Config
 }
 
-func (u *AccountUpdater) Commit() error {
+func (u *AccountUpdater) Commit() (interface{}, error) {
 	var a *Account
 
 	if u.previousName == "" {
@@ -272,7 +271,7 @@ func (u *AccountUpdater) Commit() error {
 		}
 	}
 	if a == nil {
-		return errors.New("Unable to find account, was its name changed while editing?")
+		return nil, errors.New("Unable to find account, was its name changed while editing?")
 	}
 
 	if u.name != nil {
@@ -290,7 +289,8 @@ func (u *AccountUpdater) Commit() error {
 	if u.clientCreds != nil {
 		a.ClientCreds = u.clientCreds
 	}
-	return u.save()
+
+	return a, u.save()
 }
 
 func (u *AccountUpdater) Name(name string) error {
@@ -302,7 +302,7 @@ func (u *AccountUpdater) Name(name string) error {
 	if name != u.previousName {
 		for _, other := range u.C.Services[u.S].Accounts {
 			if name == other.AccountName {
-				return errors.New("That account name is already in use.  Choose another.")
+				return fmt.Errorf("The account name '%s' is already in use.  Choose another.", name)
 			}
 		}
 	}
@@ -414,14 +414,19 @@ func VerifyState(code string, state string) (string, error) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+var rxName = regexp.MustCompile("^[-a-z0-9]+$")
+
+var rxEmail = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+" +
+	"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +
+	"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+
 func verifyName(rawText string) error {
 	if rawText == "" {
 		return errors.New("Name cannot be empty.")
 	}
 
-	match, _ := regexp.MatchString("^[-a-z0-9]+$", rawText)
-	if !match {
-		return errors.New("That name contains invalid characters.")
+	if !rxName.MatchString(rawText) {
+		return fmt.Errorf("The name '%s' contains invalid characters.", rawText)
 	}
 	return nil
 }
@@ -439,12 +444,9 @@ func verifyUrl(rawText string) (string, error) {
 }
 
 func verifyEmail(rawText string) (string, error) {
-	rxEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+" +
-		"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +
-		"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 	email := strings.TrimSpace(rawText)
 	if len(email) > 254 || !rxEmail.MatchString(email) {
-		return "", errors.New("Email address is not valid.")
+		return "", fmt.Errorf("Email address '%s' is not valid.", email)
 	}
 	return email, nil
 }
