@@ -103,15 +103,14 @@ func NewServiceUpdater(previousName string) (*ServiceUpdater, error) {
 }
 
 type ServiceUpdater struct {
-	previousName                                    string
-	name, clientID, clientSecret, authURL, tokenURL *string
-	scopes                                          *[]string
-	domains                                         *[]*Domain
-	save                                            func() error
-	c                                               *Config
+	previousName                                                string
+	name, clientID, clientSecret, authURL, tokenURL, engineName *string
+	scopes                                                      *[]string
+	save                                                        func() error
+	c                                                           *Config
 }
 
-func (u *ServiceUpdater) Commit() error {
+func (u *ServiceUpdater) Commit() (interface{}, error) {
 	var s *Service
 
 	if u.previousName == "" {
@@ -127,7 +126,7 @@ func (u *ServiceUpdater) Commit() error {
 		}
 	}
 	if s == nil {
-		return errors.New("Unable to find service, was its name changed while editing?")
+		return nil, errors.New("Unable to find service, was its name changed while editing?")
 	}
 
 	if u.name != nil {
@@ -148,11 +147,11 @@ func (u *ServiceUpdater) Commit() error {
 	if u.scopes != nil {
 		s.OauthServiceCreds.Scopes = *u.scopes
 	}
-	if u.domains != nil {
-		s.Domains = u.domains
+	if u.engineName != nil {
+		s.EngineName = *u.engineName
 	}
 
-	return u.save()
+	return s, u.save()
 }
 
 func (u *ServiceUpdater) Name(name string) error {
@@ -226,8 +225,8 @@ func (u *ServiceUpdater) Scopes(scopes string) error {
 	return nil
 }
 
-func (u *ServiceUpdater) Domains(domains []*Domain) error {
-	u.domains = &domains
+func (u *ServiceUpdater) EngineName(engineName string) error {
+	u.engineName = &engineName
 	return nil
 }
 
@@ -258,7 +257,7 @@ type AccountUpdater struct {
 	C                *Config
 }
 
-func (u *AccountUpdater) Commit() error {
+func (u *AccountUpdater) Commit() (interface{}, error) {
 	var a *Account
 
 	if u.previousName == "" {
@@ -272,7 +271,7 @@ func (u *AccountUpdater) Commit() error {
 		}
 	}
 	if a == nil {
-		return errors.New("Unable to find account, was its name changed while editing?")
+		return nil, errors.New("Unable to find account, was its name changed while editing?")
 	}
 
 	if u.name != nil {
@@ -290,7 +289,8 @@ func (u *AccountUpdater) Commit() error {
 	if u.clientCreds != nil {
 		a.ClientCreds = u.clientCreds
 	}
-	return u.save()
+
+	return a, u.save()
 }
 
 func (u *AccountUpdater) Name(name string) error {

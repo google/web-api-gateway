@@ -35,7 +35,7 @@
     </ul>
 
   {{if .Profile}}
-    <form method="post" action="/logout" class="navbar-form navbar-right">
+    <form method="post" action="/portal/logout" class="navbar-form navbar-right">
       <button class="btn btn-default">Log out</button>
     </form>
     <div class="navbar-text navbar-right">
@@ -52,7 +52,7 @@
 </div>
   {{else}}
     <div class="navbar-text navbar-right">
-      <a href="/login">Log in</a>
+      <a href="/portal/login">Log in</a>
     </div>
   </div>
 </div>

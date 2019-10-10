@@ -49,7 +49,6 @@ const (
 )
 
 var (
-	baseTmpl        = parseTemplate("")
 	listTmpl        = parseTemplate(*templatesFolder + "list.html")
 	editServiceTmpl = parseTemplate(*templatesFolder + "editService.html")
 	editAccountTmpl = parseTemplate(*templatesFolder + "editAccount.html")
@@ -67,11 +66,14 @@ var oauthConf *oauth2.Config = &oauth2.Config{
 
 var cookieStore = createStore()
 
+var engineMap = make(map[string]*config.Engine)
+
 type data struct {
 	Service  *config.Service
 	Account  *config.Account
 	Url      string
 	Template *config.Template
+	Domains  []*config.Domain
 }
 
 type profile struct {
@@ -83,12 +85,13 @@ func init() {
 	gob.Register(&oauth2.Token{})
 	gob.Register(&profile{})
 
+	createMapping()
 }
 
 func UIHandlers() *mux.Router {
 	r := mux.NewRouter()
 
-	r.Methods("GET").Path("/").Handler(appHandler(baseHandler))
+	r.Handle("/", http.RedirectHandler("/portal/", http.StatusFound))
 
 	r.Methods("GET").Path("/portal/").Handler(appHandler(listHandler))
 	r.Methods("GET").Path("/portal/addservice").Handler(appHandler(addServiceHandler))
@@ -104,9 +107,9 @@ func UIHandlers() *mux.Router {
 	r.Methods("POST").Path("/portal/saveservice").Handler(appHandler(saveServiceHandler))
 	r.Methods("POST").Path("/portal/saveaccount").Handler(appHandler(saveAccountHandler))
 
-	r.Methods("GET").Path("/login").Handler(appHandler(loginHandler))
-	r.Methods("GET").Path("/auth").Handler(appHandler(oauthCallbackHandler))
-	r.Methods("POST").Path("/logout").Handler(appHandler(logoutHandler))
+	r.Methods("GET").Path("/portal/login").Handler(appHandler(loginHandler))
+	r.Methods("GET").Path("/portal/auth").Handler(appHandler(oauthCallbackHandler))
+	r.Methods("POST").Path("/portal/logout").Handler(appHandler(logoutHandler))
 
 	r.Methods("GET").Path("/portal/users").Handler(appHandler(listUserHandler))
 	r.Methods("POST").Path("/portal/adduser").Handler(appHandler(addUserHandler))
@@ -127,7 +130,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return appErrorf(err, "could not parse URL: %v", err)
 	}
 
-	redirectUrl.Path = "/auth"
+	redirectUrl.Path = "/portal/auth"
 	oauthConf.RedirectURL = redirectUrl.String()
 
 	sessionID := uuid.Must(uuid.NewV4()).String()
@@ -209,12 +212,8 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := session.Save(r, w); err != nil {
 		return appErrorf(err, "could not save session: %v", err)
 	}
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
-}
-
-func baseHandler(w http.ResponseWriter, r *http.Request) *appError {
-	return baseTmpl.Execute(w, r, nil)
 }
 
 func listHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -242,13 +241,17 @@ func addServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if tmp == nil || len(tmp.Engines) == 0 {
 		http.Redirect(w, r, "/portal/upload", http.StatusFound)
 	}
-	return editServiceTmpl.Execute(w, r, data{nil, nil, "", tmp})
+	return editServiceTmpl.Execute(w, r, data{nil, nil, "", tmp, nil})
 }
 
 func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	c, err := config.ReadConfig()
 	if err != nil {
 		return appErrorf(err, "could not read config file: %v", err)
+	}
+	tmp, err := config.ReadTemplate()
+	if err != nil {
+		return appErrorf(err, "could not read template: %v", err)
 	}
 	serviceStr := mux.Vars(r)["service"]
 	_, service, err := serviceFromRequest(serviceStr, c)
@@ -266,7 +269,11 @@ func addAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := setStateToSession(w, r, state); err != nil {
 		return err
 	}
-	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl, nil})
+	engine, ok := engineMap[service.EngineName]
+	if !ok {
+		return appErrorf(err, "could not get engine: %v", err)
+	}
+	return editAccountTmpl.Execute(w, r, data{service, nil, authUrl, tmp, engine.Domains})
 }
 
 func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -307,10 +314,10 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 		u.AuthURL(engine.AuthURL)
 		u.TokenURL(engine.TokenURL)
 		u.Scopes(engine.Scopes)
-		u.Domains(engine.Domains)
+		u.EngineName(engineName)
 	}
 
-	if err := u.Commit(); err != nil {
+	if _, err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
 	}
 	http.Redirect(w, r, "/portal/", http.StatusFound)
@@ -388,15 +395,34 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		}
 	}
 
+	session.Values[stateSessionKey] = nil
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
+	}
+
 	if r.FormValue("GenerateNewCreds") == "on" || previousAccount == "" {
 		if err := u.ClientCreds(); err != nil {
 			return appErrorf(err, "could not generate client credentails: %v", err)
 		}
 	}
 
-	if err := u.Commit(); err != nil {
+	i, err := u.Commit()
+	if err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
 	}
+	a, ok := i.(*config.Account)
+	if !ok {
+		return appErrorf(err, "could not get account: %v", err)
+	}
+
+	// add new handler
+	path, handler, err := createAccountHandler(u.C, u.C.Services[u.S], a)
+	if err != nil {
+		return appErrorf(err, "could not add handler for service: %s, account: %s, error: %v",
+			u.C.Services[u.S].ServiceName, a.AccountName, err)
+	}
+	H.HandleFunc(path, handler)
+
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
 }
@@ -434,7 +460,7 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	}
 
 	accountStr := mux.Vars(r)["account"]
-	i, _, err := accountFromRequest(accountStr, service)
+	i, account, err := accountFromRequest(accountStr, service)
 	if err != nil {
 		return appErrorf(err, "could not find account: %v", err)
 	}
@@ -442,6 +468,11 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := config.RemoveAccount(i, sIdx); err != nil {
 		return appErrorf(err, "could not delete account: %v", err)
 	}
+
+	// disable handler
+	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
+	H[basePath].Enabled = false
+
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
 }
@@ -458,14 +489,18 @@ func editHandler(w http.ResponseWriter, r *http.Request, tmpl *appTemplate) *app
 		return appErrorf(err, "could not find service: %v", err)
 	}
 	if tmpl == editServiceTmpl {
-		return tmpl.Execute(w, r, data{service, nil, "", nil})
+		return tmpl.Execute(w, r, data{service, nil, "", nil, nil})
 	} else {
 		accountStr := mux.Vars(r)["account"]
 		_, account, err := accountFromRequest(accountStr, service)
 		if err != nil {
 			return appErrorf(err, "could not find account: %v", err)
 		}
-		return tmpl.Execute(w, r, data{service, account, "", nil})
+		engine, ok := engineMap[service.EngineName]
+		if !ok {
+			return appErrorf(err, "could not get engine: %v", err)
+		}
+		return tmpl.Execute(w, r, data{service, account, "", nil, engine.Domains})
 	}
 }
 
@@ -519,7 +554,7 @@ func reauthorizeAccountHandler(w http.ResponseWriter, r *http.Request) *appError
 	if err := setStateToSession(w, r, state); err != nil {
 		return err
 	}
-	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, nil})
+	return editAccountTmpl.Execute(w, r, data{service, account, authUrl, nil, nil})
 }
 
 func listUserHandler(w http.ResponseWriter, r *http.Request) *appError {
@@ -545,13 +580,11 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 func mappingHandler(w http.ResponseWriter, r *http.Request) *appError {
 	f, _, err := r.FormFile("Mapping")
-	defer f.Close()
-	if err == http.ErrMissingFile {
-		return appErrorf(err, "could not upload file: %v", err)
-	}
 	if err != nil {
-		return appErrorf(err, "could not upload file: %v", err)
+		http.Redirect(w, r, "/portal/upload", http.StatusFound)
+		return nil
 	}
+	defer f.Close()
 	var buf bytes.Buffer
 	var t config.Template
 	if _, err := io.Copy(&buf, f); err != nil {
@@ -571,6 +604,8 @@ func mappingHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err = save(); err != nil {
 		return appErrorf(err, "could not save to config file", err)
 	}
+
+	createMapping()
 
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
@@ -625,6 +660,15 @@ func createStore() *sessions.CookieStore {
 		HttpOnly: true,
 	}
 	return store
+}
+
+func createMapping() {
+	tmp, err := config.ReadTemplate()
+	if err == nil {
+		for _, engine := range tmp.Engines {
+			engineMap[engine.EngineName] = engine
+		}
+	}
 }
 
 func profileFromSession(r *http.Request) *profile {

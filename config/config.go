@@ -34,7 +34,7 @@ type Service struct {
 	ServiceName       string // name for reference when setting up an account
 	OauthServiceCreds *OauthServiceCreds
 	Accounts          []*Account
-	Domains           *[]*Domain
+	EngineName        string
 }
 
 // OauthServiceCreds stores the information to get authorized to connect new

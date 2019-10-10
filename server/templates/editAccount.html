@@ -19,16 +19,17 @@
     <input type="hidden" name="ServiceName" value="{{.Service.ServiceName}}" />
     <input type="hidden" name="PreviousAccountName" 
     value="{{if .Account}}{{.Account.AccountName}}{{end}}" />
-    {{if .Url}}{{if not .Account}}
+    {{if and .Account .Url}}
+    {{else}}
     <div class="form-group">
       <select name="Domain" required>
         <option value="" disabled selected>Select Domain Endpoint</option>
-        {{range .Service.Domains}}
+        {{range .Domains}}
         <option value="{{.ServiceURL}}">{{.DomainName}}</option>
         {{end}}
       </select>
     </div>
-    {{end}}{{end}}
+    {{end}}
 
     <div class="form-group">
       <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
