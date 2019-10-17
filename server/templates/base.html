@@ -49,7 +49,11 @@
   </div>
 </div>
 <div class="container">
-  <p><font color="red">{{.Flash}}</font></p>
+  {{if .Flash}}
+  <div class="alert alert-info" role="alert">
+    <strong>{{.Flash}}</strong>
+  </div>
+  {{end}}
   {{template "body" .Data}}
 </div>
   {{else}}
@@ -59,11 +63,19 @@
   </div>
 </div>
   <div class="container">
-    <p><font color="red">{{.Flash}}</font></p>
+    {{if .Flash}}
+    <div class="alert alert-danger" role="alert">
+      <strong>{{.Flash}}</strong>
+    </div>
+    {{end}}
   </div>
-  {{end}}
+
   <div class="container">
+    <p><h3>Hello and welcome to Gateway!</h3><br></p>
+    <p>Web Api Gateway allows you to share API access with your partners.<br></p>
+    <p>Please Log in first.</p>
     <img src="/portal/static/welcome.png" alt="Welcome!">
   </div>
+  {{end}}
 </body>
 </html>

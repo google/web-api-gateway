@@ -34,11 +34,15 @@
     <div class="form-group">
       <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
       Account Name</label>
-      {{if .Account}}{{if not .Url}}
-        <p><small>Editing a name will break existing connections. Only do this if you're really ok with fix everything!</small></p>{{end}}{{end}}
       <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="text"{{end}} 
        name="AccountName" value="{{if .Account}}{{.Account.AccountName}}{{end}}" 
-       pattern="^[-a-z0-9]+$" title="Name should only consist of lowercase letters, numbers and hyphens." required />
+       pattern="^[-a-z0-9]+$" aria-describedby="nameHelp" required />
+       <small id="nameHelp" class="form-text text-muted" {{if and .Account .Url}}hidden{{end}}>
+         {{if .Account}}{{if not .Url}}
+         Editing a name will break existing connections. Only do this if you're really ok with fix everything!<br>
+         {{end}}{{end}}
+         Name should only consist of lowercase letters, numbers and hyphens.
+       </small>
     </div>
     {{if .Account}}
       {{if not .Url}}
@@ -59,7 +63,7 @@
     </div>
     {{end}}
     <div class="form-group">
-      <button type="submit">Save</button>
+      <button type="submit" class="btn btn-success">Save</button>
     </div>
   </form>
 

@@ -13,65 +13,77 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 */}}
-<div>
-  <a href="/portal/addservice" class="btn btn-success btn-sm">
-    <i class="glyphicon glyphicon-plus"></i>
-    <span>Add Service</span>
-  </a>
-  <br/>
-</div>
-<table class="table">
-  <tr>
-    <th>Services/Accounts</th>
-    <th>Actions</th>
-  </tr>
-    {{range .Services}}
-      {{$ServiceName := .ServiceName}}
-      <tr>
-        <td>{{.ServiceName}}</td>
-        <td>
-          <a href="/portal/addaccount/{{$ServiceName}}" class="btn btn-success btn-sm">
-            <i class="glyphicon glyphicon-plus"></i>
-            <span>Add Account</span>
-          </a>
-          <a href="/portal/editservice/{{.ServiceName}}" class="btn btn-primary btn-sm">
+{{if not .Services}}
+  <div class="container">
+    <p><h3>Hello and welcome to Gateway!</h3><br></p>
+    <p>Web Api Gateway allows you to share API access with your partners.<br></p>
+    <p>Start by "<b>Adding a service</b>". </p>
+{{end}}
+    <div>
+      <a href="/portal/addservice" class="btn btn-success btn-sm">
+        <i class="glyphicon glyphicon-plus"></i>
+        <span>Add Service</span>
+      </a>
+    </div>
+{{if not .Services}}
+    <img src="/portal/static/welcome.png" alt="Welcome!">
+  </div>
+{{else}}
+  <table class="table table-bordered">
+    <tr>
+      <th>Services/Accounts</th>
+      <th>Actions</th>
+    </tr>
+{{end}}
+{{range .Services}}
+  {{$ServiceName := .ServiceName}}
+    <tr>
+      <td>{{.ServiceName}}</td>
+      <td>
+        <a href="/portal/addaccount/{{$ServiceName}}" class="btn btn-success btn-sm">
+          <i class="glyphicon glyphicon-plus"></i>
+          <span>Add Account</span>
+        </a>
+        <a href="/portal/editservice/{{.ServiceName}}" class="btn btn-default btn-sm">
+          <i class="glyphicon glyphicon-edit"></i>
+          <span>Edit</span>
+        </a>
+        <a href="/portal/removeservice/{{.ServiceName}}" class="btn btn-default btn-sm"
+        onclick="return confirm('Removing a service will delete all accounts created'
+        + ' under this service. Please review and confirm your request.');">
+          <i class="glyphicon glyphicon-trash"></i>
+          <span>Remove</span>
+        </a>
+      </td>
+    </tr>
+    <tr>
+      {{range .Accounts}}
+        <td>{{.AccountName}}</td>
+        <td> 
+          <a href="/portal/editaccount/{{$ServiceName}}/{{.AccountName}}"
+          class="btn btn-default btn-sm">
             <i class="glyphicon glyphicon-edit"></i>
             <span>Edit</span>
           </a>
-          <a href="/portal/removeservice/{{.ServiceName}}" class="btn btn-danger btn-sm">
+          <a href="/portal/removeaccount/{{$ServiceName}}/{{.AccountName}}"
+          class="btn btn-default btn-sm"
+          onclick="return confirm('Removing an account will break existing'
+          + ' existing connections. Please review and confirm your request.');">
             <i class="glyphicon glyphicon-trash"></i>
             <span>Remove</span>
           </a>
+          <a href="/portal/retrievekey/{{$ServiceName}}/{{.AccountName}}"
+          class="btn btn-default btn-sm">
+            <i class="glyphicon glyphicon-eye-open"></i>
+            <span>Get Account Key</span>
+          </a>
+          <a href="/portal/reauthorizeaccount/{{$ServiceName}}/{{.AccountName}}"
+          class="btn btn-default btn-sm">
+            <i class="glyphicon glyphicon-new-window"></i>
+            <span>Reauthorize</span>
+          </a>
         </td>
-      </tr>
-      <tr>
-        {{range .Accounts}}
-          <td>{{.AccountName}}</td>
-          <td> 
-            <a href="/portal/editaccount/{{$ServiceName}}/{{.AccountName}}"
-            class="btn btn-primary btn-sm">
-              <i class="glyphicon glyphicon-edit"></i>
-              <span>Edit</span>
-            </a>
-            <a href="/portal/removeaccount/{{$ServiceName}}/{{.AccountName}}"
-            class="btn btn-primary btn-sm">
-              <i class="glyphicon glyphicon-trash"></i>
-              <span>Remove</span>
-            </a>
-            <a href="/portal/retrievekey/{{$ServiceName}}/{{.AccountName}}"
-            class="btn btn-primary btn-sm">
-              <i class="glyphicon glyphicon-eye-open"></i>
-              <span>Get Account Key</span>
-            </a>
-            <a href="/portal/reauthorizeaccount/{{$ServiceName}}/{{.AccountName}}"
-            class="btn btn-primary btn-sm">
-              <i class="glyphicon glyphicon-new-window"></i>
-              <span>Reauthorize</span>
-            </a>
-          </td>
-        {{end}}
-      </tr>
-    {{else}} 
-    <p> No services yet.</p>
-    {{end}}
-  </table>
+      {{end}}
+    </tr>
+  {{end}}
+</table>

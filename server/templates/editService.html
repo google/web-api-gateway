@@ -32,10 +32,15 @@
 
     <div class="form-group">
       <label for="ServiceName">Service Name</label>
-      {{if .Service}}<p><small>Editing a name will break existing connections. Only do this if you're really ok with fix everything!</small></p>{{end}}
       <input class="form-control" type="text" name="ServiceName" 
        value="{{if .Service}}{{.Service.ServiceName}}{{end}}" pattern="^[-a-z0-9]+$" 
-       title="Name should only consist of lowercase letters, numbers and hyphens." required />
+       aria-describedby="nameHelp" required />
+        <small id="nameHelp" class="form-text text-muted">
+         {{if .Service}}
+         Editing a name will break existing connections. Only do this if you're really ok with fix everything!<br>
+         {{end}}
+         Name should only consist of lowercase letters, numbers and hyphens.
+       </small>
     </div>
     <div class="form-group">
       <label for="ClientID">Client ID</label>
@@ -48,6 +53,6 @@
        value="{{if .Service}}{{.Service.OauthServiceCreds.ClientSecret}}{{end}}" required />
     </div>
     <div class="form-group">
-      <button type="submit">Save</button>
+      <button type="submit" class="btn btn-success">Save</button>
     </div>
   </form>
