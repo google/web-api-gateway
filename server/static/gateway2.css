@@ -1,0 +1,86 @@
+
+/* HEADER NAVIGATION */
+.navbar {
+	min-height: 48px;
+	padding: 0 12px;
+	border-radius: 0;
+}
+
+.navbar-default {
+	border-color: rgba(0,0,0,0);
+	background-color: #fff;
+	box-shadow: 0 3px 4px 0 rgba(0,0,0,.2), 0 3px 3px -2px rgba(0,0,0,.14), 0 1px 8px 0 rgba(0,0,0,.12);
+}
+
+.navbar-default .navbar-brand, 
+.navbar-default .navbar-nav>li>a,
+.navbar-default .navbar-text {
+	color: rgba(0,0,0,0.56);
+}
+
+.navbar>.container .navbar-brand:hover {
+	color: rgba(0,0,0,0.56);
+}
+
+.navbar-default .navbar-nav>li>a:hover {
+	color: rgba(0,0,0,0.56);
+	background-color: rgba(255,255,255,0.16);
+}
+
+/* MAIN CONTENT AREA */
+body {
+	font-family: "Google Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+
+.container {
+	padding: 0;
+}
+
+h3 {
+	color: rgba(0,0,0,.87);
+    font-family: "Google Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: normal;
+    line-height: 28px;
+    margin-bottom: 8px;
+    margin-top: 0;
+    height: 48px;
+}
+.container h3 {
+	padding: 0 8px 0 0;
+	display: inline;
+	vertical-align: middle;
+}
+.btn-success,
+.btn-success:hover {
+	background-color: #4284f4;
+	border-color: transparent;
+}
+.btn-primary,
+.btn-primary:hover,
+.btn-default,
+.btn-default:hover,
+.btn-danger,
+.btn-danger:hover {
+	color: rgba(0,0,0,.87);
+	background-color: #fff;
+	border-color: rgba(0,0,0,.26);
+}
+.glyphicon {
+	display: none;
+}
+
+/* TABLE */
+.container div ul {
+	margin: 32px 0 10px 0;
+	padding: 0;
+}
+.container div ul li {
+	list-style: none;
+}
+.container div ul li h4 {
+	display: inline;
+	vertical-align: middle;
+	padding: 0 8px 0 0;
+}

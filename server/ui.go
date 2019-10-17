@@ -117,6 +117,9 @@ func UIHandlers() *mux.Router {
 	r.Methods("GET").Path("/portal/upload").Handler(appHandler(uploadHandler))
 	r.Methods("POST").Path("/portal/mapping").Handler(appHandler(mappingHandler))
 
+	r.PathPrefix("/portal/static/").Handler(http.StripPrefix("/portal/static/", 
+		http.FileServer(http.Dir("/go/src/github.com/google/web-api-gateway/server/static"))))
+
 	return r
 }
 
