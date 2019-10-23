@@ -381,25 +381,27 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 			return &appError{Message: "could not get state"}
 		}
 		code := r.FormValue("Code")
-		decode, err := config.VerifyState(code, state)
-		if err != nil {
-			session.AddFlash("Oauth failed, please try again.")
-			if err := session.Save(r, w); err != nil {
-				return appErrorf(err, "could not save session: %v", err)
+		if code != "" {
+			decode, err := config.VerifyState(code, state)
+			if err != nil {
+				session.AddFlash("Oauth failed, please try again.")
+				if err := session.Save(r, w); err != nil {
+					return appErrorf(err, "could not save session: %v", err)
+				}
+				if previousAccount == "" {
+					http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
+					return nil
+				} else {
+					http.Redirect(w, r,
+						fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
+						http.StatusFound)
+					return nil
+				}
 			}
-			if previousAccount == "" {
-				http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
-				return nil
-			} else {
-				http.Redirect(w, r,
-					fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
-					http.StatusFound)
-				return nil
-			}
-		}
 
-		if err := u.OauthCreds(decode); err != nil {
-			return appErrorf(err, "could not update Oauth credentials: %v", err)
+			if err := u.OauthCreds(decode); err != nil {
+				return appErrorf(err, "could not update Oauth credentials: %v", err)
+			}
 		}
 	}
 

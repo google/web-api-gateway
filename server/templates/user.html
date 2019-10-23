@@ -21,7 +21,7 @@
     <input type="email" name="Email" required />
   </div>
   <div class="form-group">
-    <button type="submit" class="btn btn-success">Add User</button>
+    <button type="submit" class="btn btn-primary">Add User</button>
   </div>
 </form>
 
@@ -36,10 +36,24 @@
       {{$key}}
     </td>
     <td>
-      <a href="/portal/removeuser/{{$key}}" class="btn btn-default btn-sm"
-      onclick="return confirm('Removing the user?');"><span>Remove</span>
-      </a>
+      <dialog id="dialog-{{$key}}">
+        <h3>Remove user</h3>
+        <p>Please review and confirm your request. <br><br>
+        Remove <b>{{$key}}</b>
+        </p>
+        <a href="/portal/removeuser/{{$key}}" class="btn btn-primary btn-sm">Save</a>
+        <button type="submit" autofocus id="close-{{$key}}" class="btn btn-default btn-sm">Cancel</button>
+      </dialog>
+      <button class="btn btn-default btn-sm" id="show-{{$key}}"><span>Remove</span></button>
     </td>
   </tr>
+  <script type="text/javascript">
+    document.getElementById('show-{{$key}}').onclick = function() {
+      document.getElementById('dialog-{{$key}}').showModal();
+    };
+    document.getElementById('close-{{$key}}').onclick = function() {
+      document.getElementById('dialog-{{$key}}').close();
+    };
+  </script>
   {{end}}
 </table>
