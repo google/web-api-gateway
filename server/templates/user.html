@@ -14,7 +14,8 @@
   limitations under the License.
 */}}
 <h3>Authorized UI Users</h3>
-<form action="/portal/adduser" method="post">
+<div class="addusertext">Please add emails of authorized gateway users.</div>
+<form action="/portal/adduser" method="post" class="authorizedusers">
   <div class="form-group">
     <label for="Email">Email:</label>
     <input type="email" name="Email" required />
@@ -24,12 +25,21 @@
   </div>
 </form>
 
-<div>
-  <ul>
-    {{range $key, $v := .}}
-      <li>
-        {{$key}}
-      </li>
-    {{end}}
-  </ul>
-</div>
+<table class="table table-bordered">
+  <tr>
+    <th>Emails</th>
+    <th>Actions</th>
+  </tr>  
+  {{range $key, $v := .}}
+  <tr>
+    <td>
+      {{$key}}
+    </td>
+    <td>
+      <a href="/portal/removeuser/{{$key}}" class="btn btn-default btn-sm"
+      onclick="return confirm('Removing the user?');"><span>Remove</span>
+      </a>
+    </td>
+  </tr>
+  {{end}}
+</table>

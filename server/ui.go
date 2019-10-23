@@ -113,11 +113,12 @@ func UIHandlers() *mux.Router {
 
 	r.Methods("GET").Path("/portal/users").Handler(appHandler(listUserHandler))
 	r.Methods("POST").Path("/portal/adduser").Handler(appHandler(addUserHandler))
+	r.Methods("GET").Path("/portal/removeuser/{user}").Handler(appHandler(removeUserHandler))
 
 	r.Methods("GET").Path("/portal/upload").Handler(appHandler(uploadHandler))
 	r.Methods("POST").Path("/portal/mapping").Handler(appHandler(mappingHandler))
 
-	r.PathPrefix("/portal/static/").Handler(http.StripPrefix("/portal/static/", 
+	r.PathPrefix("/portal/static/").Handler(http.StripPrefix("/portal/static/",
 		http.FileServer(http.Dir("/go/src/github.com/google/web-api-gateway/server/static"))))
 
 	return r
@@ -322,7 +323,7 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	if _, err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
-	}	
+	}
 	session.AddFlash(fmt.Sprintf("Successfully saved changes for service %s.", r.FormValue("ServiceName")))
 	if err := session.Save(r, w); err != nil {
 		return appErrorf(err, "could not save session: %v", err)
@@ -407,7 +408,7 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return appErrorf(err, "could not save session: %v", err)
 	}
 
-	if r.FormValue("GenerateNewCreds") == "on" || previousAccount == "" {
+	if previousAccount == "" {
 		if err := u.ClientCreds(); err != nil {
 			return appErrorf(err, "could not generate client credentails: %v", err)
 		}
@@ -498,6 +499,22 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	}
 
 	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
+}
+
+func removeUserHandler(w http.ResponseWriter, r *http.Request) *appError {
+	userStr := mux.Vars(r)["user"]
+	if err := config.RemoveUser(userStr); err != nil {
+		return appErrorf(err, "could not delete user: %v", err)
+	}
+
+	session, _ := cookieStore.Get(r, defaultSessionID)
+	session.AddFlash(fmt.Sprintf("Successfully removed user %s.", userStr))
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
+	}
+
+	http.Redirect(w, r, "/portal/users", http.StatusFound)
 	return nil
 }
 

@@ -33,22 +33,25 @@
     <div class="form-group">
       <label for="ServiceName">Service Name</label>
       <input class="form-control" type="text" name="ServiceName" 
-       value="{{if .Service}}{{.Service.ServiceName}}{{end}}" pattern="^[-a-z0-9]+$" 
-       aria-describedby="nameHelp" required />
-        <small id="nameHelp" class="form-text text-muted">
-         {{if .Service}}
-         Editing a name will break existing connections. Only do this if you're really ok with fix everything!<br>
-         {{end}}
+       pattern="^[-a-z0-9]+$" aria-describedby="nameHelp" required
+       {{if .Service}}value="{{.Service.ServiceName}}" readonly style="background-color; grey;"{{end}} />
+        <small id="nameHelp" class="form-text text-muted" {{if .Service}}hidden{{end}}>
          Name should only consist of lowercase letters, numbers and hyphens.
        </small>
     </div>
     <div class="form-group">
-      <label for="ClientID">Client ID</label>
+      <label for="ClientID">Client ID
+        <img src="https://www.gstatic.com/images/icons/material/system_gm/svg/help_outline_24px.svg" alt="Tooltip"
+        title="The client id is a public identifier for apps. You will get this from the App service provider.">
+      </label>
       <input class="form-control" type="text" name="ClientID" 
        value="{{if .Service}}{{.Service.OauthServiceCreds.ClientID}}{{end}}" required />
     </div>
     <div class="form-group">
-      <label for="ClientSecret">Client Secret</label>
+      <label for="ClientSecret">Client Secret
+       <img src="https://www.gstatic.com/images/icons/material/system_gm/svg/help_outline_24px.svg" alt="Tooltip"
+        title="The client secret is a secret known only to the application and the authorization server. You will get this from the App service provider.">
+      </label>
       <input class="form-control" type="password" name="ClientSecret" 
        value="{{if .Service}}{{.Service.OauthServiceCreds.ClientSecret}}{{end}}" required />
     </div>

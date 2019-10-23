@@ -66,6 +66,15 @@ func AddUser(rawText string) error {
 	return save()
 }
 
+func RemoveUser(rawText string) error {
+	c, save, err := ReadWriteConfig()
+	if err != nil {
+		return err
+	}
+	delete(c.Users, rawText)
+	return save()
+}
+
 func RemoveService(i int) error {
 	c, save, err := ReadWriteConfig()
 	if err != nil {
