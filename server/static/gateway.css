@@ -52,16 +52,16 @@ body {
 
 h3 {
 	color: rgba(0,0,0,.87);
-    font-family: "Roboto","Helvetica","Arial",sans-serif;
-    font-size: 20px;
-    font-weight: 500;
-    letter-spacing: normal;
-    line-height: 28px;
-    margin-bottom: 16px;
-    margin-top: 0;
+  font-family: "Roboto","Helvetica","Arial",sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 28px;
+  margin-bottom: 16px;
+  margin-top: 0;
 }
 .container h3 {
-    height: auto;
+  height: auto;
 	padding: 0 8px 0 0;
 	display: inline-block!important;
 	vertical-align: middle;
