@@ -91,7 +91,7 @@ func init() {
 func UIHandlers() *mux.Router {
 	r := mux.NewRouter()
 
-	r.Handle("/", http.RedirectHandler("/portal/", http.StatusFound))
+	r.Handle("/portal", http.RedirectHandler("/portal/", http.StatusFound))
 
 	r.Methods("GET").Path("/portal/").Handler(appHandler(listHandler))
 	r.Methods("GET").Path("/portal/addservice").Handler(appHandler(addServiceHandler))
@@ -113,9 +113,13 @@ func UIHandlers() *mux.Router {
 
 	r.Methods("GET").Path("/portal/users").Handler(appHandler(listUserHandler))
 	r.Methods("POST").Path("/portal/adduser").Handler(appHandler(addUserHandler))
+	r.Methods("GET").Path("/portal/removeuser/{user}").Handler(appHandler(removeUserHandler))
 
 	r.Methods("GET").Path("/portal/upload").Handler(appHandler(uploadHandler))
 	r.Methods("POST").Path("/portal/mapping").Handler(appHandler(mappingHandler))
+
+	r.PathPrefix("/portal/static/").Handler(http.StripPrefix("/portal/static/",
+		http.FileServer(http.Dir("/go/src/github.com/google/web-api-gateway/server/static"))))
 
 	return r
 }
@@ -193,7 +197,7 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) *appError {
 			return appErrorf(err, "could not save session: %v", err)
 		}
 	} else {
-		session.AddFlash("Sorry you are not authorized, please contact IT =)")
+		session.AddFlash("Sorry you are not authorized, please contact IT department.")
 		if err := session.Save(r, w); err != nil {
 			return appErrorf(err, "could not save session: %v", err)
 		}
@@ -287,7 +291,7 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if e != nil {
 		return appErrorf(e, "could not get default session: %v", e)
 	}
-	// the warning is in title
+
 	if err := u.Name(r.FormValue("ServiceName")); err != nil {
 		session.AddFlash(fmt.Sprintf("%v", err))
 		if err := session.Save(r, w); err != nil {
@@ -319,6 +323,10 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	if _, err := u.Commit(); err != nil {
 		return appErrorf(err, "could not save changes: %v", err)
+	}
+	session.AddFlash(fmt.Sprintf("Successfully saved changes for service %s.", r.FormValue("ServiceName")))
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
 	}
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
@@ -373,25 +381,27 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 			return &appError{Message: "could not get state"}
 		}
 		code := r.FormValue("Code")
-		decode, err := config.VerifyState(code, state)
-		if err != nil {
-			session.AddFlash("Oauth failed, please try again.")
-			if err := session.Save(r, w); err != nil {
-				return appErrorf(err, "could not save session: %v", err)
+		if code != "" {
+			decode, err := config.VerifyState(code, state)
+			if err != nil {
+				session.AddFlash("Oauth failed, please try again.")
+				if err := session.Save(r, w); err != nil {
+					return appErrorf(err, "could not save session: %v", err)
+				}
+				if previousAccount == "" {
+					http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
+					return nil
+				} else {
+					http.Redirect(w, r,
+						fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
+						http.StatusFound)
+					return nil
+				}
 			}
-			if previousAccount == "" {
-				http.Redirect(w, r, fmt.Sprintf("/portal/addaccount/%s", sName), http.StatusFound)
-				return nil
-			} else {
-				http.Redirect(w, r,
-					fmt.Sprintf("/portal/reauthorizeaccount/%s/%s", sName, previousAccount),
-					http.StatusFound)
-				return nil
-			}
-		}
 
-		if err := u.OauthCreds(decode); err != nil {
-			return appErrorf(err, "could not update Oauth credentials: %v", err)
+			if err := u.OauthCreds(decode); err != nil {
+				return appErrorf(err, "could not update Oauth credentials: %v", err)
+			}
 		}
 	}
 
@@ -400,7 +410,7 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return appErrorf(err, "could not save session: %v", err)
 	}
 
-	if r.FormValue("GenerateNewCreds") == "on" || previousAccount == "" {
+	if previousAccount == "" {
 		if err := u.ClientCreds(); err != nil {
 			return appErrorf(err, "could not generate client credentails: %v", err)
 		}
@@ -423,6 +433,11 @@ func saveAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	}
 	ServerHandlers.HandleFunc(path, handler)
 
+	session.AddFlash(fmt.Sprintf("Successfully saved changes for account %s.", a.AccountName))
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
+	}
+
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
 }
@@ -441,6 +456,12 @@ func removeServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 
 	if err := config.RemoveService(i); err != nil {
 		return appErrorf(err, "could not delete service: %v", err)
+	}
+
+	session, _ := cookieStore.Get(r, defaultSessionID)
+	session.AddFlash(fmt.Sprintf("Successfully removed service %s.", serviceStr))
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
 	}
 
 	http.Redirect(w, r, "/portal/", http.StatusFound)
@@ -473,7 +494,29 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) *appError {
 	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
 	ServerHandlers[basePath].Enabled = false
 
+	session, _ := cookieStore.Get(r, defaultSessionID)
+	session.AddFlash(fmt.Sprintf("Successfully removed account %s.", accountStr))
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
+	}
+
 	http.Redirect(w, r, "/portal/", http.StatusFound)
+	return nil
+}
+
+func removeUserHandler(w http.ResponseWriter, r *http.Request) *appError {
+	userStr := mux.Vars(r)["user"]
+	if err := config.RemoveUser(userStr); err != nil {
+		return appErrorf(err, "could not delete user: %v", err)
+	}
+
+	session, _ := cookieStore.Get(r, defaultSessionID)
+	session.AddFlash(fmt.Sprintf("Successfully removed user %s.", userStr))
+	if err := session.Save(r, w); err != nil {
+		return appErrorf(err, "could not save session: %v", err)
+	}
+
+	http.Redirect(w, r, "/portal/users", http.StatusFound)
 	return nil
 }
 

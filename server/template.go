@@ -57,6 +57,7 @@ func (tmpl *appTemplate) Execute(w http.ResponseWriter, r *http.Request, data in
 		Data    interface{}
 		Profile *profile
 		Flash   string
+		Img     string
 	}{
 		Data: data,
 	}

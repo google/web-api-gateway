@@ -24,8 +24,13 @@
     <div class="form-group">
       <select name="Domain" required>
         <option value="" disabled selected>Select Domain Endpoint</option>
+        {{$AccountServiceURL := ""}}
+        {{if .Account}}{{$AccountServiceURL = .Account.ServiceURL}}{{end}}
         {{range .Domains}}
-        <option value="{{.ServiceURL}}">{{.DomainName}}</option>
+          <option value="{{.ServiceURL}}" 
+          {{if eq .ServiceURL $AccountServiceURL}}selected="selected"{{end}}>
+          {{.DomainName}}
+          </option>
         {{end}}
       </select>
     </div>
@@ -34,23 +39,16 @@
     <div class="form-group">
       <label for="AccountName" {{if and .Account .Url}}hidden{{end}}>
       Account Name</label>
-      {{if .Account}}{{if not .Url}}
-        <p><small>Editing a name will break existing connections. Only do this if you're really ok with fix everything!</small></p>{{end}}{{end}}
       <input class="form-control" {{if and .Account .Url}}type="hidden"{{else}}type="text"{{end}} 
-       name="AccountName" value="{{if .Account}}{{.Account.AccountName}}{{end}}" 
-       pattern="^[-a-z0-9]+$" title="Name should only consist of lowercase letters, numbers and hyphens." required />
+       name="AccountName" pattern="^[-a-z0-9]+$" aria-describedby="nameHelp" required
+       {{if .Account}}value="{{.Account.AccountName}}" readonly style="background-color; grey;"{{end}} />
+       <small id="nameHelp" class="form-text text-muted" {{if .Account}}hidden{{end}}>
+         Name should only consist of lowercase letters, numbers and hyphens.
+       </small>
     </div>
-    {{if .Account}}
-      {{if not .Url}}
-      <div class="form-group">
-        <label for="GenerateNewCreds">Generate New Access Credentials</label>
-        <input type="checkbox" name="GenerateNewCreds" title="Generate new access credentials will break existing connections. Only do this if you're really ok with fix everything!" />
-      </div>
-      {{end}}
-    {{end}}
     {{if .Url}}
     <div class="form-group">
-      <label> Please go to this url and authorize the application:</label>
+      <label> Please go to this URL and {{if .Account}}reauthorize{{else}}authorize{{end}} the application:</label>
       <a href="{{.Url}}" target="_blank" >Authenticate URL</a>
     </div>
     <div class="form-group">
@@ -59,7 +57,7 @@
     </div>
     {{end}}
     <div class="form-group">
-      <button type="submit">Save</button>
+      <button type="submit" class="btn btn-primary">Save</button>
     </div>
   </form>
 

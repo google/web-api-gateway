@@ -20,6 +20,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+<link rel="stylesheet" href="/portal/static/gateway.css">
+
 </head>
 
 <body>
@@ -28,13 +30,12 @@
     <div class="navbar-header">
       <div class="navbar-brand">Gateway UI</div>
     </div>
+{{if .Profile}}
     <ul class="nav navbar-nav">
       <li><a href="/portal/">Services</a></li>
       <li><a href="/portal/users">Authorized UI Users</a></li>
       <li><a href="/portal/upload">Upload Config File</a></li>
     </ul>
-
-  {{if .Profile}}
     <form method="post" action="/portal/logout" class="navbar-form navbar-right">
       <button class="btn btn-default">Log out</button>
     </form>
@@ -46,20 +47,35 @@
     </div>
   </div>
 </div>
-<div class="container">
-  <p><font color="red">{{.Flash}}</font></p>
+<div class="container databody">
+  {{if .Flash}}
+  <div class="alert alert-info" role="alert">
+    <strong>{{.Flash}}</strong>
+  </div>
+  {{end}}
   {{template "body" .Data}}
 </div>
   {{else}}
     <div class="navbar-text navbar-right">
-      <a href="/portal/login">Log in</a>
+      <a class="login-link" href="/portal/login">Log in</a>
     </div>
   </div>
 </div>
-  <div class="container">
-    <p><font color="red">{{.Flash}}</font></p>
+  <div class="container databody">
+    {{if .Flash}}
+    <div class="alert alert-danger" role="alert">
+      <strong>{{.Flash}}</strong>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="container welcomepage">
+    <p><h3>Welcome to the Web API Gateway!</h3><br></p>
+    <p>Web API Gateway allows you to share API access with partners.<br></p>
+    <p>Please Log in first.</p>
+    <p>Please have the Config file ready.</p>
+    <img src="/portal/static/welcome.png" alt="Welcome!">
   </div>
   {{end}}
-
 </body>
 </html>

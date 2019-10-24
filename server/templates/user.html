@@ -14,22 +14,46 @@
   limitations under the License.
 */}}
 <h3>Authorized UI Users</h3>
-<form action="/portal/adduser" method="post">
+<div class="addusertext">Please add emails of authorized gateway users.</div>
+<form action="/portal/adduser" method="post" class="authorizedusers">
   <div class="form-group">
     <label for="Email">Email:</label>
     <input type="email" name="Email" required />
   </div>
   <div class="form-group">
-    <button type="submit">Add User</button>
+    <button type="submit" class="btn btn-primary">Add User</button>
   </div>
 </form>
 
-<div>
-  <ul>
-    {{range $key, $v := .}}
-      <li>
-        {{$key}}
-      </li>
-    {{end}}
-  </ul>
-</div>
+<table class="table table-bordered">
+  <tr>
+    <th>Emails</th>
+    <th>Actions</th>
+  </tr>  
+  {{range $key, $v := .}}
+  <tr>
+    <td>
+      {{$key}}
+    </td>
+    <td>
+      <dialog id="dialog-{{$key}}">
+        <h3>Remove user</h3>
+        <p>Please review and confirm your request. <br><br>
+        Remove <b>{{$key}}</b>
+        </p>
+        <a href="/portal/removeuser/{{$key}}" class="btn btn-primary btn-sm">Save</a>
+        <button type="submit" autofocus id="close-{{$key}}" class="btn btn-default btn-sm">Cancel</button>
+      </dialog>
+      <button class="btn btn-default btn-sm" id="show-{{$key}}"><span>Remove</span></button>
+    </td>
+  </tr>
+  <script type="text/javascript">
+    document.getElementById('show-{{$key}}').onclick = function() {
+      document.getElementById('dialog-{{$key}}').showModal();
+    };
+    document.getElementById('close-{{$key}}').onclick = function() {
+      document.getElementById('dialog-{{$key}}').close();
+    };
+  </script>
+  {{end}}
+</table>

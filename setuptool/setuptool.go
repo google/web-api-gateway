@@ -44,6 +44,7 @@ func main() {
 		newAction("Edit Account", editAccount),
 		newAction("Delete Account", removeAccount),
 		newAction("Add authorized UI users (email address)", addUser),
+		newAction("Delete authorized UI users (email address)", removeUser),
 	)
 }
 
@@ -324,6 +325,11 @@ func retrieveAccountKey(t *term) {
 func addUser(t *term) {
 	userInput(t, "Enter the users' emails> ", config.AddUser)
 	fmt.Println("User added.")
+}
+
+func removeUser(t *term) {
+	userInput(t, "Enter the users' email> ", config.RemoveUser)
+	fmt.Println("User removed.")
 }
 
 func chooseService(t *term) (int, string) {

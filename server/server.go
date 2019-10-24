@@ -124,7 +124,7 @@ func (h Handlers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		path = path[:idx]
 	}
 
-	if strings.HasPrefix(path, "/portal/") {
+	if strings.HasPrefix(path, "/portal") {
 		UIHandlers().ServeHTTP(w, r)
 	} else if handler, ok := h[path]; ok && handler.Enabled {
 		handler.ServeHTTP(w, r)
