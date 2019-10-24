@@ -30,13 +30,12 @@
     <div class="navbar-header">
       <div class="navbar-brand">Gateway UI</div>
     </div>
+{{if .Profile}}
     <ul class="nav navbar-nav">
       <li><a href="/portal/">Services</a></li>
       <li><a href="/portal/users">Authorized UI Users</a></li>
       <li><a href="/portal/upload">Upload Config File</a></li>
     </ul>
-
-  {{if .Profile}}
     <form method="post" action="/portal/logout" class="navbar-form navbar-right">
       <button class="btn btn-default">Log out</button>
     </form>
