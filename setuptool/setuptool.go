@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,42 +19,47 @@ package main
 
 import (
 	"bufio"
-	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/google/web-api-gateway/config"
-	"golang.org/x/oauth2"
 )
 
 func main() {
 	flag.Parse()
 	fmt.Printf("Welcome to the Web Api Gateway Config Tool.\n\n")
 
-	term := newRealTerminal()
+	term := newRealTerm()
 
-	c, save, err := config.ReadWriteConfig()
-	if err != nil {
-		fmt.Printf("Unable to load config file: %v\n", err)
-		os.Exit(1)
-	}
+	takeActionLoop(term, backIsExit,
+		newAction("Retrieve Account Key", retrieveAccountKey),
+		newAction("Edit Web Api Gateway Url", editUrl),
+		newAction("Add Service", addService),
+		newAction("Edit Service", editService),
+		newAction("Delete Service", removeService),
+		newAction("Add Account", addAccount),
+		newAction("Edit Account", editAccount),
+		newAction("Delete Account", removeAccount),
+		newAction("Add authorized UI users (email address)", addUser),
+		newAction("Delete authorized UI users (email address)", removeUser),
+	)
+}
 
-	configEditor{c}.edit(term)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
+type commiter interface {
+	Commit() (interface{}, error)
+}
+
+func commit(t *term, c commiter) {
 	fmt.Println("Saving...")
+
 	for {
-		err = save()
+		_, err := c.Commit()
 		if err == nil {
 			fmt.Println("Save successful!")
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
@@ -63,7 +68,7 @@ func main() {
 			return
 		}
 		fmt.Printf("There was an error saving the config file: %v\n", err)
-		tryAgain := term.readBoolean("Do you want to try again? (no to lose all changes and exit.)")
+		tryAgain := t.readBoolean("Do you want to try again? (no to discard unsaved changes.)")
 		if !tryAgain {
 			return
 		}
@@ -73,63 +78,212 @@ func main() {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-type configEditor struct {
-	c *config.Config
+func editUrl(t *term) {
+	userInput(t, "Enter the Web Api Gateway Url> ", config.SetEndpointUrl)
 }
 
-func (e configEditor) edit(term *terminal) {
-	if e.c.Url == "" {
-		e.editUrl(term)
+func ServiceName(u *config.ServiceUpdater, t *term) {
+	userInput(t, "Choose a name (only use lowercase letters, numbers, and dashes)> ", u.Name)
+}
+
+func ServiceClientID(u *config.ServiceUpdater, t *term) {
+	userInput(t, "Enter the Oauth Client ID> ", u.ClientID)
+}
+
+func ServiceClientSecret(u *config.ServiceUpdater, t *term) {
+	userInput(t, "Enter the Oauth Client Secret> ", u.ClientSecret)
+}
+
+func ServiceAuthURL(u *config.ServiceUpdater, t *term) {
+	userInput(t, "Enter the Oauth Auth URL> ", u.AuthURL)
+}
+
+func ServiceTokenURL(u *config.ServiceUpdater, t *term) {
+	userInput(t, "Enter the Oauth Token URL> ", u.TokenURL)
+}
+
+func ServiceScopes(u *config.ServiceUpdater, t *term) {
+	userInput(t, "Enter the Oauth scopes> ", u.Scopes)
+}
+
+func AccountName(u *config.AccountUpdater, t *term) {
+	userInput(t, "Choose a name (only use lowercase letters, numbers, and dashes)> ", u.Name)
+}
+
+func AccountServiceURL(u *config.AccountUpdater, t *term) {
+	userInput(t, "Enter the Service URL> ", u.ServiceURL)
+}
+
+func AccountOauthCreds(u *config.AccountUpdater, t *term) bool {
+	oauthConf, err := config.GenerateOauthConfig(u.C.Url, u.C.Services[u.S])
+	if err != nil {
+		return false
 	}
+	for {
+		authUrl, state, err := config.GenerateAuthUrl(oauthConf)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		fmt.Println("Please go to this url and authorize the application:")
+		fmt.Println(authUrl)
+		fmt.Printf("Enter the code here> ")
+		encodedAuthCode := t.readSimpleString()
+		decodedToken, err := config.VerifyState(encodedAuthCode, state)
 
-	takeActionLoop(term,
-		newAction("Retrieve Account Key", e.retrieveAccountKey),
-		newAction("Edit Web Api Gateway Url", e.editUrl),
-		newAction("Add service", e.addService),
-		newAction("Edit service (including adding new accounts to an existing service)", e.editService),
-		newAction("Delete service", e.removeService))
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		if err = u.OauthCreds(decodedToken); err == nil {
+			return true
+		}
+		fmt.Println(err)
+		fmt.Println("\nPlease try again.")
+	}
 }
 
-func (e configEditor) editUrl(term *terminal) {
-	e.c.Url = term.readUrl("Web Api Gateway Url")
+func AccountClientCreds(u *config.AccountUpdater, t *term) {
+	if err := u.ClientCreds(); err != nil {
+		fmt.Println(err)
+	}
 }
 
-func (e configEditor) addService(term *terminal) {
-	s := &config.Service{}
-	serviceEditor{e.c, s}.newSetup(term)
-	e.c.Services = append(e.c.Services, s)
-}
-
-func (e configEditor) editService(term *terminal) {
-	if len(e.c.Services) == 0 {
-		fmt.Println("There are no services to edit.")
+func addService(t *term) {
+	u, err := config.NewServiceUpdater("")
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 
-	fmt.Println("Services:")
+	ServiceName(u, t)
+	ServiceClientID(u, t)
+	ServiceClientSecret(u, t)
+	ServiceAuthURL(u, t)
+	ServiceTokenURL(u, t)
+	ServiceScopes(u, t)
 
-	namer := func(i int) string { return e.c.Services[i].ServiceName }
-	i := term.readChoice(namer, len(e.c.Services))
-
-	serviceEditor{e.c, e.c.Services[i]}.edit(term)
+	commit(t, u)
 }
 
-func (e configEditor) removeService(term *terminal) {
-	if len(e.c.Services) == 0 {
-		fmt.Println("There are no services to delete.")
+func serviceCurry(f func(*config.ServiceUpdater, *term), u *config.ServiceUpdater) func(*term) {
+	return func(t *term) {
+		f(u, t)
+	}
+}
+
+func editService(t *term) {
+	_, name := chooseService(t)
+	if name == "" {
+		return
+	}
+	u, err := config.NewServiceUpdater(name)
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 
-	fmt.Println("Services:")
+	takeActionLoop(t, backIsBack,
+		newAction("Edit name", confirmRename(serviceCurry(ServiceName, u))),
+		newAction("Edit Client Id", serviceCurry(ServiceClientID, u)),
+		newAction("Edit Client Secret", serviceCurry(ServiceClientSecret, u)),
+		newAction("Edit Auth Url", serviceCurry(ServiceAuthURL, u)),
+		newAction("Edit Token Url", serviceCurry(ServiceTokenURL, u)),
+		newAction("Edit Scopes", serviceCurry(ServiceScopes, u)))
 
-	namer := func(i int) string { return e.c.Services[i].ServiceName }
-	i := term.readChoice(namer, len(e.c.Services))
-
-	e.c.Services = append(e.c.Services[:i], e.c.Services[i+1:]...)
+	commit(t, u)
 }
 
-func (e configEditor) retrieveAccountKey(term *terminal) {
-	fmt.Println("Select which account:")
+func removeService(t *term) {
+	idx, name := chooseService(t)
+	if idx == -1 {
+		return
+	}
+	if config.RemoveService(idx) != nil {
+		fmt.Println("Error deleting service: " + name)
+		return
+	}
+}
+
+func addAccount(t *term) {
+	idx, _ := chooseService(t)
+	if idx == -1 {
+		return
+	}
+	u, err := config.NewAccountUpdater("", idx)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	AccountName(u, t)
+	AccountServiceURL(u, t)
+	AccountClientCreds(u, t)
+
+	if !AccountOauthCreds(u, t) {
+		fmt.Println("Could not add account")
+		return
+	}
+	commit(t, u)
+}
+
+func accountCurry(f func(*config.AccountUpdater, *term), u *config.AccountUpdater) func(*term) {
+	return func(t *term) {
+		f(u, t)
+	}
+}
+
+func accountCurry2(f func(*config.AccountUpdater, *term) bool, u *config.AccountUpdater) func(*term) {
+	return func(t *term) {
+		f(u, t)
+	}
+}
+
+func editAccount(t *term) {
+	idx, _ := chooseService(t)
+	if idx == -1 {
+		return
+	}
+	_, name := chooseAccount(t, idx)
+	if name == "" {
+		return
+	}
+	u, err := config.NewAccountUpdater(name, idx)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	takeActionLoop(t, backIsBack,
+		newAction("Edit name", confirmRename(accountCurry(AccountName, u))),
+		newAction("Edit service Url", accountCurry(AccountServiceURL, u)),
+		newAction("Generate New Client Credentials", confirmNewClientCredentials(accountCurry(AccountClientCreds, u))),
+		newAction("Reauthorzie account", accountCurry2(AccountOauthCreds, u)))
+
+	commit(t, u)
+}
+
+func removeAccount(t *term) {
+	s, _ := chooseService(t)
+	if s == -1 {
+		return
+	}
+	a, name := chooseAccount(t, s)
+	if a == -1 {
+		return
+	}
+	if config.RemoveAccount(s, a) != nil {
+		fmt.Println("Error deleting account: " + name)
+		return
+	}
+}
+
+func retrieveAccountKey(t *term) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		fmt.Println("Unable to read config", err)
+		return
+	}
 
 	type accountSpecific struct {
 		s *config.Service
@@ -138,7 +292,7 @@ func (e configEditor) retrieveAccountKey(term *terminal) {
 
 	allAccounts := make([]accountSpecific, 0)
 
-	for _, s := range e.c.Services {
+	for _, s := range c.Services {
 		for _, a := range s.Accounts {
 			allAccounts = append(allAccounts, accountSpecific{s, a})
 		}
@@ -149,12 +303,13 @@ func (e configEditor) retrieveAccountKey(term *terminal) {
 		return
 	}
 
+	fmt.Println("Select which account:")
 	namer := func(i int) string {
 		return allAccounts[i].s.ServiceName + "/" + allAccounts[i].a.AccountName
 	}
-	i := term.readChoice(namer, len(allAccounts))
+	i := t.readChoice(namer, len(allAccounts))
 
-	key, err := createAccountKey(e.c, allAccounts[i].s, allAccounts[i].a)
+	key, err := config.GenerateAccountKey(c, allAccounts[i].s, allAccounts[i].a)
 	if err != nil {
 		fmt.Println("Error creating account key:")
 		fmt.Println(err)
@@ -165,317 +320,88 @@ func (e configEditor) retrieveAccountKey(term *terminal) {
 	fmt.Println()
 	fmt.Println(key)
 	fmt.Println()
-	fmt.Println()
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////
+func addUser(t *term) {
+	userInput(t, "Enter the users' emails> ", config.AddUser)
+	fmt.Println("User added.")
+}
 
-func createAccountKey(c *config.Config, s *config.Service, a *config.Account) (string, error) {
-	j := struct {
-		WebGatewayUrl string
-		Protocol      string
-		PrivateKey    string
-	}{
-		WebGatewayUrl: c.Url,
-		Protocol:      a.ClientCreds.Protocol,
-		PrivateKey:    a.ClientCreds.PrivateKey,
-	}
+func removeUser(t *term) {
+	userInput(t, "Enter the users' email> ", config.RemoveUser)
+	fmt.Println("User removed.")
+}
 
-	b, err := json.Marshal(j)
+func chooseService(t *term) (int, string) {
+	c, err := config.ReadConfig()
 	if err != nil {
-		return "", err
+		fmt.Println("Unable to read config", err)
+		return -1, ""
 	}
 
-	inner := base64.StdEncoding.EncodeToString(b)
-
-	return fmt.Sprintf("KEYBEGIN_%s/%s_%s_KEYEND", s.ServiceName, a.AccountName, inner), nil
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-type serviceEditor struct {
-	c *config.Config
-	s *config.Service
-}
-
-func (e serviceEditor) newSetup(term *terminal) {
-	e.setName(term)
-	e.s.OauthServiceCreds = new(config.OauthServiceCreds)
-	oauthServiceCredsEditor{e.s.OauthServiceCreds}.newSetup(term)
-	e.edit(term) // Give user chance to add accounts right away
-}
-
-func (e serviceEditor) edit(term *terminal) {
-	takeActionLoop(term,
-		newAction("Edit name", confirmRename(e.setName)),
-		newAction("Edit OAuth credentials", (&oauthServiceCredsEditor{e.s.OauthServiceCreds}).edit),
-		newAction("Add new account", e.addAccount),
-		newAction("Edit account", e.editAccount),
-		newAction("Remove account", e.removeAccount))
-}
-
-func (e serviceEditor) setName(term *terminal) {
-	e.s.ServiceName = ""
-OUTER:
-	for {
-		name := term.readName()
-
-		for _, other := range e.c.Services {
-			if name == other.ServiceName {
-				fmt.Println("That service name is already in use.  Choose another.")
-				continue OUTER
-			}
-		}
-		e.s.ServiceName = name
-		return
+	if len(c.Services) == 0 {
+		fmt.Println("There are no services.")
+		return -1, ""
 	}
-}
 
-func (e serviceEditor) addAccount(term *terminal) {
-	a := &config.Account{}
-	wasSuccess := accountEditor{e.c, e.s, a}.newSetup(term)
+	fmt.Println("Services:")
 
-	if wasSuccess {
-		e.s.Accounts = append(e.s.Accounts, a)
-	} else {
-		fmt.Println("Could not add account.")
+	var names []string
+
+	for _, s := range c.Services {
+		names = append(names, s.ServiceName)
 	}
+
+	namer := func(i int) string { return names[i] }
+	idx := t.readChoice(namer, len(c.Services))
+	return idx, names[idx]
 }
 
-func (e serviceEditor) editAccount(term *terminal) {
-	if len(e.s.Accounts) == 0 {
-		fmt.Println("There are no accounts to edit.")
-		return
+func chooseAccount(t *term, s int) (int, string) {
+	c, err := config.ReadConfig()
+	if err != nil {
+		fmt.Println("Unable to read config", err)
+		return -1, ""
+	}
+
+	if len(c.Services[s].Accounts) == 0 {
+		fmt.Println("There are no accounts.\n")
+		return -1, ""
 	}
 
 	fmt.Println("Accounts:")
 
-	namer := func(i int) string { return e.s.Accounts[i].AccountName }
-	i := term.readChoice(namer, len(e.s.Accounts))
+	var names []string
 
-	accountEditor{e.c, e.s, e.s.Accounts[i]}.edit(term)
-}
-
-func (e serviceEditor) removeAccount(term *terminal) {
-	if len(e.s.Accounts) == 0 {
-		fmt.Println("There are no accounts to delete.")
-		return
+	for _, a := range c.Services[s].Accounts {
+		names = append(names, a.AccountName)
 	}
 
-	fmt.Println("Accounts:")
-
-	namer := func(i int) string { return e.s.Accounts[i].AccountName }
-	i := term.readChoice(namer, len(e.s.Accounts))
-
-	e.s.Accounts = append(e.s.Accounts[:i], e.s.Accounts[i+1:]...)
+	namer := func(i int) string { return names[i] }
+	idx := t.readChoice(namer, len(c.Services[s].Accounts))
+	return idx, names[idx]
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-type oauthServiceCredsEditor struct {
-	o *config.OauthServiceCreds
-}
-
-func (e oauthServiceCredsEditor) newSetup(term *terminal) {
-	e.setClientId(term)
-	e.setClientSecret(term)
-	e.setAuthURL(term)
-	e.setTokenURL(term)
-	e.setScopes(term)
-}
-
-func (e oauthServiceCredsEditor) edit(term *terminal) {
-	takeActionLoop(term,
-		newAction("Edit Client Id", e.setClientId),
-		newAction("Edit Client Secret", e.setClientSecret),
-		newAction("Edit Auth Url", e.setAuthURL),
-		newAction("Edit Token Url", e.setTokenURL),
-		newAction("Edit Scopes", e.setScopes),
-	)
-}
-
-func (e oauthServiceCredsEditor) setClientId(term *terminal) {
-	fmt.Printf("Enter the client id> ")
-	e.o.ClientID = term.readSimpleString()
-}
-
-func (e oauthServiceCredsEditor) setClientSecret(term *terminal) {
-	fmt.Printf("Enter the client secret> ")
-	e.o.ClientSecret = term.readSimpleString()
-}
-
-func (e oauthServiceCredsEditor) setAuthURL(term *terminal) {
-	e.o.AuthURL = term.readUrl("Auth URL")
-}
-
-func (e oauthServiceCredsEditor) setTokenURL(term *terminal) {
-	e.o.TokenURL = term.readUrl("Token URL")
-}
-
-func (e oauthServiceCredsEditor) setScopes(term *terminal) {
-	fmt.Printf("Enter scopes (comma seperated)> ")
-	e.o.Scopes = term.readStringList()
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-type accountEditor struct {
-	c *config.Config
-	s *config.Service
-	a *config.Account
-}
-
-func (e accountEditor) newSetup(term *terminal) bool {
-	e.setName(term)
-	e.setServiceUrl(term)
-	e.generateNewClientCreds(term)
-	return e.generateNewOauthAccountCreds(term)
-}
-
-func (e accountEditor) edit(term *terminal) {
-	takeActionLoop(term,
-		newAction("Edit Name", confirmRename(e.setName)),
-		newAction("Edit Service Url", e.setServiceUrl),
-		newAction("Generate New Client Credentials", confirmNewClientCredentials(e.generateNewClientCreds)),
-		newAction("Reauthorize account", func(t *terminal) { e.generateNewOauthAccountCreds(t) }),
-	)
-}
-
-func (e accountEditor) setName(term *terminal) {
-	e.a.AccountName = ""
-
-OUTER:
+func userInput(t *term, prompt string, handler func(string) error) {
 	for {
-		name := term.readName()
-
-		for _, other := range e.s.Accounts {
-			if name == other.AccountName {
-				fmt.Println("That service name is already in use.  Choose another.")
-				continue OUTER
-			}
-		}
-		e.a.AccountName = name
-		return
-	}
-}
-
-func (e accountEditor) setServiceUrl(term *terminal) {
-	e.a.ServiceURL = term.readUrl("Service URL")
-}
-
-func (e accountEditor) generateNewClientCreds(term *terminal) {
-	fmt.Println("Generating new secret for client credentials.")
-	for i := 0; i < 10; i++ {
-
-		privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		fmt.Println(prompt)
+		i := t.readSimpleString()
+		err := handler(i)
 		if err != nil {
-			fmt.Println("error generating key: ", err)
-			fmt.Println("Trying again")
+			fmt.Println("Invalid value, ", err.Error())
 			continue
 		}
-
-		bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
-		if err != nil {
-			fmt.Println("error marshling key: ", err)
-			fmt.Println("Trying again")
-			continue
-		}
-
-		creds := config.ClientCreds{
-			Protocol:   "ECDSA_SHA256_PKCS8_V1",
-			PrivateKey: base64.StdEncoding.EncodeToString(bytes),
-		}
-
-		e.a.ClientCreds = &creds
-		return
+		break
 	}
-	fmt.Println("Too many failures trying to create client credentials, exiting without saving.")
-	os.Exit(1)
-
-}
-
-func (e accountEditor) generateNewOauthAccountCreds(term *terminal) bool {
-	var endpoint = oauth2.Endpoint{
-		AuthURL:  e.s.OauthServiceCreds.AuthURL,
-		TokenURL: e.s.OauthServiceCreds.TokenURL,
-	}
-
-	redirectUrl, err := url.Parse(e.c.Url)
-	if err != nil {
-		fmt.Println("Web-Api-Gatway url setting is invalid, can't continue.")
-		return false
-	}
-	redirectUrl.Path = "/authToken/"
-
-	oauthConf := &oauth2.Config{
-		ClientID:     e.s.OauthServiceCreds.ClientID,
-		ClientSecret: e.s.OauthServiceCreds.ClientSecret,
-		Scopes:       e.s.OauthServiceCreds.Scopes,
-		Endpoint:     endpoint,
-		RedirectURL:  redirectUrl.String(),
-	}
-
-	for {
-		state, err := generateRandomString()
-		if err != nil {
-			fmt.Println("Problem with random number generation.  Can't continue.")
-			return false
-		}
-
-		authUrl := oauthConf.AuthCodeURL(state)
-
-		fmt.Println("Please go to this url and authorize the application:")
-		fmt.Println(authUrl)
-		fmt.Printf("Enter the code here> ")
-
-		encodedAuthCode := term.readSimpleString()
-		jsonAuthCode, err := base64.StdEncoding.DecodeString(encodedAuthCode)
-		if err != nil {
-			fmt.Println("Bad decode")
-			continue
-		}
-		j := struct {
-			Token string
-			State string
-		}{}
-		json.Unmarshal(jsonAuthCode, &j)
-
-		if j.State != state {
-			fmt.Printf("Bad state. Expected %s, got %s\n", state, j.State)
-			continue
-		}
-
-		token, err := oauthConf.Exchange(context.Background(), j.Token)
-		if err == nil {
-			e.a.OauthAccountCreds = token
-			fmt.Println("Successfully authorized.")
-			return true
-		}
-		fmt.Println(err)
-		fmt.Println("Please try again.")
-	}
-}
-
-func generateRandomString() (string, error) {
-	b := make([]byte, 30)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", b), nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 func confirmRename(f actionFunc) actionFunc {
-	return func(term *terminal) {
-		if term.readBoolean("Editing a name will break existing connections.  Only do this if you're really ok with fixing everything!  Continue with rename? (yes/no)> ") {
-			f(term)
+	return func(t *term) {
+		if t.readBoolean("Editing a name will break existing connections.  Only do this if you're really ok with fixing everything!  Continue with rename? (yes/no)> ") {
+			f(t)
 		} else {
 			fmt.Println("Cancelling name edit.")
 		}
@@ -483,9 +409,9 @@ func confirmRename(f actionFunc) actionFunc {
 }
 
 func confirmNewClientCredentials(f actionFunc) actionFunc {
-	return func(term *terminal) {
-		if term.readBoolean("Creating new credentails will break existing connections.  Only do this if you're really ok with fixing everything!  Continue? (yes/no)> ") {
-			f(term)
+	return func(t *term) {
+		if t.readBoolean("Creating new credentails will break existing connections.  Only do this if you're really ok with fixing everything!  Continue? (yes/no)> ") {
+			f(t)
 		} else {
 			fmt.Println("Cancelling...")
 		}
@@ -495,68 +421,25 @@ func confirmNewClientCredentials(f actionFunc) actionFunc {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-type terminal struct {
+type term struct {
 	scanner *bufio.Scanner
 }
 
-func newRealTerminal() *terminal {
-	term := terminal{}
+func newRealTerm() *term {
+	term := term{}
 	term.scanner = bufio.NewScanner(os.Stdin)
 	return &term
 }
 
-func (term *terminal) readName() string {
-	for {
-		fmt.Printf("Choose a name (only use lowercase letters, numbers, and dashes)> ")
-		rawText := term.readSimpleString()
-		if rawText == "" {
-			fmt.Println("Name cannot be empty.")
-			continue
-		}
-		match, _ := regexp.MatchString("^[-a-z0-9]+$", rawText)
-		if !match {
-			fmt.Println("That name contains invalid characters.")
-			continue
-		}
-		return rawText
-	}
+func (t *term) readSimpleString() string {
+	t.scanner.Scan()
+	return strings.TrimSpace(t.scanner.Text())
 }
 
-func (term *terminal) readUrl(urlDescription string) string {
-	for {
-		fmt.Printf("Enter the %s> ", urlDescription)
-		rawText := term.readSimpleString()
-		tokenURL, err := url.ParseRequestURI(rawText)
-		if err != nil {
-			fmt.Println(rawText + " is not a valid URL (include https://)")
-			continue
-		}
-		if tokenURL.Scheme != "https" {
-			fmt.Println(rawText + " does not use https.")
-			continue
-		}
-
-		return tokenURL.String()
-	}
-}
-
-func (term *terminal) readSimpleString() string {
-	term.scanner.Scan()
-	return strings.TrimSpace(term.scanner.Text())
-}
-
-func (term *terminal) readStringList() []string {
-	list := strings.Split(term.readSimpleString(), ",")
-	for i := range list {
-		list[i] = strings.TrimSpace(list[i])
-	}
-	return list
-}
-
-func (term *terminal) readBoolean(prompt string) bool {
+func (t *term) readBoolean(prompt string) bool {
 	for {
 		fmt.Printf(prompt)
-		rawText := term.readSimpleString()
+		rawText := t.readSimpleString()
 		if rawText == "yes" {
 			return true
 		}
@@ -568,13 +451,13 @@ func (term *terminal) readBoolean(prompt string) bool {
 	}
 }
 
-func (term *terminal) readChoice(namer func(int) string, length int) int {
+func (t *term) readChoice(namer func(int) string, length int) int {
 	for i := 0; i < length; i++ {
 		fmt.Printf("[%d]: %s\n", i, namer(i))
 	}
 	for {
 		fmt.Printf("Choose an option> ")
-		rawText := term.readSimpleString()
+		rawText := t.readSimpleString()
 		i, err := strconv.Atoi(rawText)
 		if err == nil && i >= 0 && i < length {
 			return i
@@ -586,29 +469,37 @@ func (term *terminal) readChoice(namer func(int) string, length int) int {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+type backIs string
+
+const (
+	backIsBack = backIs("Back")
+	backIsExit = backIs("Exit")
+)
+
 type action struct {
 	displayText string
 	f           actionFunc
 }
 
-type actionFunc func(*terminal)
+type actionFunc func(*term)
 
 func newAction(displayText string, f actionFunc) *action {
 	return &action{displayText, f}
 }
 
-func takeActionLoop(term *terminal, actions ...*action) {
+func takeActionLoop(t *term, backName backIs, actions ...*action) {
 	keepLoop := true
-	back := newAction("Back", func(term *terminal) { keepLoop = false })
+
+	back := newAction(string(backName), func(t *term) { keepLoop = false })
 
 	actions = append([]*action{back}, actions...)
 
 	for keepLoop {
-		takeAction(term, actions...)
+		takeAction(t, actions...)
 	}
 }
 
-func takeAction(term *terminal, actions ...*action) {
-	i := term.readChoice(func(j int) string { return actions[j].displayText }, len(actions))
-	actions[i].f(term)
+func takeAction(t *term, actions ...*action) {
+	i := t.readChoice(func(j int) string { return actions[j].displayText }, len(actions))
+	actions[i].f(t)
 }

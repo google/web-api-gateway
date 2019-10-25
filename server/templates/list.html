@@ -1,0 +1,116 @@
+{{/*
+  Copyright 2019 Google LLC
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+  
+      https://www.apache.org/licenses/LICENSE-2.0
+  
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/}}
+{{if not .Services}}
+  <div class="container welcomepage">
+    <p><h3>Welcome to the Web API Gateway!</h3><br></p>
+    <p>Web API Gateway allows you to share API access with partners.<br></p>
+    <p>Start by "<b>Adding a service</b>". </p>
+{{else}}
+  <h3>Services</h3>
+{{end}}
+    <div class="addservice">
+      <a href="/portal/addservice" class="btn btn-primary btn-sm">
+        <span>Add Service</span>
+      </a>
+    </div>
+{{if not .Services}}
+    <img src="/portal/static/welcome.png" alt="Welcome!">
+  </div>
+{{else}}
+  <table class="table table-bordered">
+    <tr>
+      <th>Services/Accounts</th>
+      <th>Actions</th>
+    </tr>
+{{end}}
+{{range .Services}}
+  {{$ServiceName := .ServiceName}}
+    <tr>
+      <td>{{$ServiceName}}</td>
+      <td>
+        <a href="/portal/addaccount/{{$ServiceName}}" class="btn btn-primary btn-sm">
+          <span>Add Account</span>
+        </a>
+        <a href="/portal/editservice/{{$ServiceName}}" class="btn btn-default btn-sm">
+          <span>Edit</span>
+        </a>
+        <dialog id="dialog-{{$ServiceName}}">
+          <h3>Remove service</h3>
+          <p>Removing a service will delete all accounts created under this service. 
+            Please review and confirm your request. <br><br>
+          Remove <b>{{$ServiceName}}</b>
+          </p>
+          <a href="/portal/removeservice/{{$ServiceName}}"class="btn btn-primary btn-sm">Save</a>
+          <button type="submit" autofocus id="close-{{$ServiceName}}" 
+          class="btn btn-default btn-sm">Cancel</button>
+        </dialog>
+        <button class="btn btn-default btn-sm" id="show-{{$ServiceName}}">
+          <span>Remove</span>
+        </button>
+      </td>
+    </tr>
+    {{range .Accounts}}
+      <tr class="accounts">
+        <td>{{.AccountName}}</td>
+        <td> 
+          <a href="/portal/editaccount/{{$ServiceName}}/{{.AccountName}}"
+          class="btn btn-default btn-sm">
+            <span>Edit</span>
+          </a>
+          <dialog id="dialog-{{$ServiceName}}-{{.AccountName}}">
+            <h3>Remove account</h3>
+            <p>Removing an account will break existing connections. Please 
+            review and confirm your request. <br><br>
+            Remove <b>{{.AccountName}}</b>
+            </p>
+            <a href="/portal/removeaccount/{{$ServiceName}}/{{.AccountName}}" 
+            class="btn btn-primary btn-sm">Save</a>
+            <button type="submit" autofocus id="close-{{$ServiceName}}-{{.AccountName}}" 
+            class="btn btn-default btn-sm">Cancel</button>
+          </dialog>
+          <button class="btn btn-default btn-sm" id="show-{{$ServiceName}}-{{.AccountName}}">
+            <span>Remove</span>
+          </button>
+          <a href="/portal/retrievekey/{{$ServiceName}}/{{.AccountName}}"
+          class="btn btn-default btn-sm">
+            <span>Get Account Key</span>
+          </a>
+          <a href="/portal/reauthorizeaccount/{{$ServiceName}}/{{.AccountName}}"
+          class="btn btn-default btn-sm">
+            <span>Reauthorize</span>
+          </a>
+        </td>
+      </tr>
+    </tr>
+    <script type="text/javascript">
+      document.getElementById('show-{{$ServiceName}}-{{.AccountName}}').onclick = function() {
+        document.getElementById('dialog-{{$ServiceName}}-{{.AccountName}}').showModal();
+      };
+      document.getElementById('close-{{$ServiceName}}-{{.AccountName}}').onclick = function() {
+        document.getElementById('dialog-{{$ServiceName}}-{{.AccountName}}').close();
+      };
+    </script>
+    {{end}}
+    <script type="text/javascript">
+      document.getElementById('show-{{$ServiceName}}').onclick = function() {
+        document.getElementById('dialog-{{$ServiceName}}').showModal();
+      };
+      document.getElementById('close-{{$ServiceName}}').onclick = function() {
+        document.getElementById('dialog-{{$ServiceName}}').close();
+      };
+    </script>
+  {{end}}
+</table>

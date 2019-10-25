@@ -1,5 +1,5 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2019 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const version = "1.2.0"
+const version = "2.1.0"
 
 // TODO: switch to some other time interval?
 const reloadInterval = time.Minute * 30
@@ -62,23 +62,34 @@ var addr *string = flag.String(
 	"This is the address:port which the server listens to.",
 )
 
+type Handler struct {
+	http.HandlerFunc
+	Enabled bool
+}
+
+type Handlers map[string]*Handler
+
+var ServerHandlers Handlers
+var muxer *http.ServeMux
+
 func main() {
 	flag.Parse()
 
 	log.Println("Reading config file...")
+	log.Printf("Starting web-api-gateway, version %s\n", version)
 
-	http.Handle("/service/", createConfigHandler())
-	http.HandleFunc("/authToken/", authTokenPage)
-	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+	ServerHandlers = Handlers{}
+	muxer = http.NewServeMux()
+	ServerHandlers.HandleFunc("/authToken/", authTokenPage)
+	ServerHandlers.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "web-api-gateway version: %s\nGo version: %s", version, runtime.Version())
 	})
 
-	log.Printf("Starting web-api-gateway, version %s\n", version)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
-		http.DefaultServeMux.ServeHTTP(w, r)
+	errHandler := createConfigHandler()
+	ServerHandlers.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if errHandler != nil {
+			errHandler.ServeHTTP(w, r)
+		}
 	})
 
 	cr, err := NewCertificateReloader(*certFile, *keyFile)
@@ -91,9 +102,35 @@ func main() {
 		TLSConfig: &tls.Config{
 			GetCertificate: cr.GetCertificateFunc(),
 		},
-		Handler: mux,
+		Handler: muxer,
 	}
 	log.Fatal(server.ListenAndServeTLS("", ""))
+}
+
+func (h Handlers) HandleFunc(pattern string, handler http.HandlerFunc) {
+	_, contain := h[pattern]
+	h[pattern] = &Handler{handler, true}
+	if !contain {
+		muxer.HandleFunc(pattern, h.ServeHTTP)
+	}
+}
+
+func (h Handlers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Incoming Request %s %s %s", r.RemoteAddr, r.Method, r.URL)
+	path := r.URL.Path
+	spath := strings.Split(path, "/")
+	if len(spath) >= 6 {
+		idx := strings.Index(path, spath[5])
+		path = path[:idx]
+	}
+
+	if strings.HasPrefix(path, "/portal") {
+		UIHandlers().ServeHTTP(w, r)
+	} else if handler, ok := h[path]; ok && handler.Enabled {
+		handler.ServeHTTP(w, r)
+	} else {
+		http.Error(w, "Not Found", http.StatusNotFound)
+	}
 }
 
 ///////////////////////////////////////////////
@@ -160,7 +197,6 @@ func createConfigHandler() http.Handler {
 		return ErrorReadingConfig
 	}
 
-	mux := http.NewServeMux()
 	for _, service := range c.Services {
 		for _, account := range service.Accounts {
 			path, handler, err := createAccountHandler(c, service, account)
@@ -172,14 +208,14 @@ func createConfigHandler() http.Handler {
 					err)
 				return ErrorReadingConfig
 			}
-			mux.Handle(path, handler)
+			ServerHandlers.HandleFunc(path, handler)
 		}
 	}
 
-	return mux
+	return nil
 }
 
-func createAccountHandler(c *config.Config, service *config.Service, account *config.Account) (string, http.Handler, error) {
+func createAccountHandler(c *config.Config, service *config.Service, account *config.Account) (string, http.HandlerFunc, error) {
 	// TODO: we're assuming that service and account names are valid.  The editing tool validates this
 	// but it should be validated when loading too.
 	basePath := fmt.Sprintf("/service/%s/account/%s/", service.ServiceName, account.AccountName)
@@ -209,7 +245,7 @@ func createAccountHandler(c *config.Config, service *config.Service, account *co
 	return basePath, handler, nil
 }
 
-func wrapWithClientAuth(handler http.Handler, account *config.Account) (http.Handler, error) {
+func wrapWithClientAuth(handler http.Handler, account *config.Account) (http.HandlerFunc, error) {
 	// TODO TEST account.ClientCreds.Protocol and ensure it's what we're expecting here.
 
 	der, err := base64.StdEncoding.DecodeString(account.ClientCreds.PrivateKey)

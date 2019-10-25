@@ -1,0 +1,61 @@
+{{/*
+  Copyright 2019 Google LLC
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+  
+      https://www.apache.org/licenses/LICENSE-2.0
+  
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/}}
+<h3>{{if .Service}}Edit{{else}}Add{{end}} Service</h3>
+
+  <form action="/portal/saveservice" method="post">
+    <input type="hidden" name="PreviousServiceName" 
+     value="{{if .Service}}{{.Service.ServiceName}}{{end}}" />
+    {{if .Service}}
+    {{else}}
+    <div class="form-group">
+      <select name="Engine" required>
+        <option value="" disabled selected>Select Engine</option>
+        {{range .Template.Engines}}
+        <option value="{{.EngineName}}">{{.EngineName}}</option>
+        {{end}}
+     </select>
+    </div>
+    {{end}}
+
+    <div class="form-group">
+      <label for="ServiceName">Service Name</label>
+      <input class="form-control" type="text" name="ServiceName" 
+       pattern="^[-a-z0-9]+$" aria-describedby="nameHelp" required
+       {{if .Service}}value="{{.Service.ServiceName}}" readonly style="background-color; grey;"{{end}} />
+        <small id="nameHelp" class="form-text text-muted" {{if .Service}}hidden{{end}}>
+         Name should only consist of lowercase letters, numbers and hyphens.
+       </small>
+    </div>
+    <div class="form-group">
+      <label for="ClientID">Client ID
+        <img src="/portal/static/tooltip.svg" alt="Tooltip"
+        title="The client id is a public identifier for apps. You will get this from the App service provider.">
+      </label>
+      <input class="form-control" type="text" name="ClientID" 
+       value="{{if .Service}}{{.Service.OauthServiceCreds.ClientID}}{{end}}" required />
+    </div>
+    <div class="form-group">
+      <label for="ClientSecret">Client Secret
+       <img src="/portal/static/tooltip.svg" alt="Tooltip"
+        title="The client secret is a secret known only to the application and the authorization server. You will get this from the App service provider.">
+      </label>
+      <input class="form-control" type="password" name="ClientSecret" 
+       value="{{if .Service}}{{.Service.OauthServiceCreds.ClientSecret}}{{end}}" required />
+    </div>
+    <div class="form-group">
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
