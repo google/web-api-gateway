@@ -54,6 +54,9 @@ func AddUser(rawText string) error {
 	if err != nil {
 		return err
 	}
+	if c.Users == nil {
+		c.Users = make(map[string]bool)
+	}
 
 	list := strings.Split(rawText, ",")
 	for _, input := range list {
