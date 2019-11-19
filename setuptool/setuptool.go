@@ -32,7 +32,16 @@ func main() {
 	flag.Parse()
 	fmt.Printf("Welcome to the Web Api Gateway Config Tool.\n\n")
 
+	c, _, err := config.ReadWriteConfig()
+	if err != nil {
+		fmt.Printf("Unable to load config file %v\n", err)
+	}
+
 	term := newRealTerm()
+
+	if c.Url == "" {
+		editUrl(term)
+	}
 
 	takeActionLoop(term, backIsExit,
 		newAction("Retrieve Account Key", retrieveAccountKey),
@@ -324,12 +333,12 @@ func retrieveAccountKey(t *term) {
 
 func addUser(t *term) {
 	userInput(t, "Enter the users' emails> ", config.AddUser)
-	fmt.Println("User added.")
+	fmt.Println("User added.\n")
 }
 
 func removeUser(t *term) {
 	userInput(t, "Enter the users' email> ", config.RemoveUser)
-	fmt.Println("User removed.")
+	fmt.Println("User removed.\n")
 }
 
 func chooseService(t *term) (int, string) {

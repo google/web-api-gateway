@@ -328,10 +328,6 @@ func saveServiceHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err := session.Save(r, w); err != nil {
 		return appErrorf(err, "could not save session: %v", err)
 	}
-	session.AddFlash(fmt.Sprintf("Successfully saved changes for service %s.", r.FormValue("ServiceName")))
-	if err := session.Save(r, w); err != nil {
-		return appErrorf(err, "could not save session: %v", err)
-	}
 	http.Redirect(w, r, "/portal/", http.StatusFound)
 	return nil
 }

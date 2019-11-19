@@ -324,17 +324,17 @@ cd ~/web-api-gateway
 sudo git pull
 ```
 
-Rebuild the docker image with the new change:
-
-```
-sudo docker build -t web-api-gateway . 
-```
-
 Stop and remove the old container:
 ```
 sudo docker stop web-api-gateway
 sudo docker rm web-api-gateway 
 ``` 
+
+Rebuild the docker image with the new change:
+
+```
+sudo docker build -t web-api-gateway . 
+```
 
 Start the server using [Step 8](#runservice) 
 

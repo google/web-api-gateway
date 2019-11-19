@@ -39,7 +39,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const version = "2.1.0"
+const version = "2.1.1"
 
 // TODO: switch to some other time interval?
 const reloadInterval = time.Minute * 30
