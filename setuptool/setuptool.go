@@ -35,6 +35,7 @@ func main() {
 	c, _, err := config.ReadWriteConfig()
 	if err != nil {
 		fmt.Printf("Unable to load config file %v\n", err)
+		os.Exit(1)
 	}
 
 	term := newRealTerm()
