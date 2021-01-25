@@ -24,7 +24,7 @@ import (
 // Config is the root for configuration of the web-api-gateway.
 type Config struct {
 	Url      string
-	Users    map[string]bool // user whitelist
+	Users    map[string]bool
 	Services []*Service
 	Template Template
 }
